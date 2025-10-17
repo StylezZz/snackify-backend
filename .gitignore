@@ -1,0 +1,89 @@
+# .gitignore para un proyecto backend (Node.js / TypeScript)
+# Ignorar dependencias y archivos de build
+/node_modules/
+dist/
+build/
+out/
+lib/
+coverage/
+.nyc_output/
+coverage-final.json
+*.tsbuildinfo
+
+# Archivos de entorno / secretos
+.env
+.env.local
+.env.*.local
+secrets/
+credentials/
+keys/
+*.key
+*.pem
+*.crt
+*.p12
+!env.example
+!.env.example
+
+# Logs y procesos
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# IDEs y editores
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# SO
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Contenedores / despliegue local
+docker-compose.override.yml
+.docker/
+
+# Cachés y artefactos temporales
+.cache/
+.cache-loader/
+.next/
+.vercel/
+.serverless/
+.parcel-cache/
+*.tgz
+
+# Bases de datos locales
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# Otros archivos generados
+*.log.*
+*.bak
+*.old
+*.orig
+
+# Ignorar paquetes empaquetados (node pack)
+*.tgz
+
+# PnP / Yarn 2+
+.pnp.*
+.yarn/*
+!.yarn/releases
+!.yarn/plugins
+!.yarn/sdks
+!.yarn/versions
+
+# Ajusta según necesidades del proyecto (Quita/añade entradas si quieres versionar algún archivo)
