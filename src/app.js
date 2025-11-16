@@ -2,16 +2,16 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const errorHandler = require('./middleware/errorHandler');
+const {errorHandler} = require('./middleware/errorHandler');
 
 //Importar rutas 
-const authRoutes = require('./routes/authRoutes');
-const userRoutes = require('./routes/userRoutes');
-const productRoutes = require('./routes/productRoutes');
-const categoryRoutes = require('./routes/categoryRoutes');
-const orderRoutes = require('./routes/orderRoutes');
-const creditRoutes = require('./routes/creditRoutes');
-const dashboardRoutes = require('./routes/dashboardRoutes');
+const authRoutes = require('./routes/auth.routes');
+const userRoutes = require('./routes/user.routes');
+const productRoutes = require('./routes/product.routes');
+const categoryRoutes = require('./routes/category.routes');
+const orderRoutes = require('./routes/order.routes');
+const creditRoutes = require('./routes/credit.routes');
+const dashboardRoutes = require('./routes/dashboard.routes');
 
 const app = express();
 
@@ -24,7 +24,7 @@ app.use(cors({
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutos
     max: 100, // Limitar cada IP a 100 solicitudes por ventana
-    message:  'Demasiadas peticiones desde esta IP, intenta mas tarde.'
+    message: 'Demasiadas peticiones desde esta IP, intenta mas tarde.'
 });
 
 app.use('/api/', limiter);
@@ -48,20 +48,20 @@ app.get('/health', (req,res) => {
     });
 });
 
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/products', productRoutes);
+app.use('/api/categories', categoryRoutes);
+app.use('/api/orders', orderRoutes);
+app.use('/api/credits', creditRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
-app.use('/api/auth',authRoutes);
-app.use('/api/users',userRoutes);
-app.use('/api/products',productRoutes);
-app.use('/api/categories',categoryRoutes);
-app.use('/api/orders',orderRoutes);
-app.use('/api/credits',creditRoutes);
-app.use('/api/dashboard',dashboardRoutes);
-
-app.use('*',(req,res) => {
+// CORREGIDO: Middleware sin patrón de ruta para catch-all
+app.use((req, res) => {
     res.status(404).json({
         success: false,
         message: 'Endpoint no encontrado'
-    })
+    });
 });
 
 app.use(errorHandler);
