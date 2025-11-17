@@ -1,6 +1,6 @@
 const Product = require('../models/Product');
 const { AppError, catchAsync } = require('../middleware/errorHandler');
-
+const {uploadImageToS3} = require('../services/imageService');
 // @desc    Obtener todos los productos
 // @route   GET /api/products
 // @access  Public
@@ -63,7 +63,23 @@ exports.createProduct = catchAsync(async (req, res, next) => {
     return next(new AppError('El precio no puede ser negativo', 400));
   }
 
-  const product = await Product.create(req.body);
+  let image_url = null;
+
+  if(req.file){
+    try{
+      image_url = await uploadImageToS3(req.file);
+    }catch(error){
+      return next(new AppError('Error subiendo imagen a S3', 500));
+    }
+  }
+
+  const product = await Product.create({
+    category_id,
+    name,
+    description,
+    price,
+    image_url
+  });
 
   res.status(201).json({
     success: true,

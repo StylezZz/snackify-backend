@@ -87,7 +87,10 @@ class Product {
     }
 
     const result = await query(
-      `SELECT p.*, c.name as category_name
+      `SELECT p.product_id, p.name, p.description, p.price, p.image_url, p.thumbnail_url,
+              p.stock_quantity, p.min_stock_level, p.is_available, p.preparation_time,
+              p.calories, p.allergens, p.created_at, p.updated_at,
+              c.name as category_name, c.category_id
        FROM products p
        LEFT JOIN categories c ON c.category_id = p.category_id
        WHERE ${whereConditions.join(' AND ')}
