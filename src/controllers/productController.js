@@ -51,7 +51,11 @@ exports.createProduct = catchAsync(async (req, res, next) => {
     category_id,
     name,
     description,
-    price
+    price,
+    image_url,
+    thumbnail_url,
+    stock_quantity,
+    is_available
   } = req.body;
 
   // Validaciones
@@ -63,22 +67,15 @@ exports.createProduct = catchAsync(async (req, res, next) => {
     return next(new AppError('El precio no puede ser negativo', 400));
   }
 
-  let image_url = null;
-
-  if(req.file){
-    try{
-      image_url = await uploadImageToS3(req.file);
-    }catch(error){
-      return next(new AppError('Error subiendo imagen a S3', 500));
-    }
-  }
-
   const product = await Product.create({
     category_id,
     name,
     description,
     price,
-    image_url
+    image_url,
+    thumbnail_url,
+    stock_quantity,
+    is_available
   });
 
   res.status(201).json({
