@@ -340,7 +340,7 @@ class Order {
   // Obtener estadísticas de pedidos
   static async getStats(dateFrom, dateTo) {
     const result = await query(
-      `SELECT 
+      `SELECT
          COUNT(*) as total_orders,
          COUNT(CASE WHEN status = 'delivered' THEN 1 END) as delivered_orders,
          COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled_orders,
@@ -355,6 +355,304 @@ class Order {
     );
 
     return result.rows[0];
+  }
+
+  // Buscar por número de orden
+  static async findByOrderNumber(orderNumber) {
+    const result = await query(
+      `SELECT o.*, u.full_name as customer_name, u.email as customer_email
+       FROM orders o
+       JOIN users u ON u.user_id = o.user_id
+       WHERE o.order_number = $1`,
+      [orderNumber]
+    );
+
+    if (result.rows.length === 0) return null;
+
+    const order = result.rows[0];
+    const itemsResult = await query(
+      `SELECT oi.*, p.image_url, p.thumbnail_url
+       FROM order_items oi
+       LEFT JOIN products p ON p.product_id = oi.product_id
+       WHERE oi.order_id = $1`,
+      [order.order_id]
+    );
+    order.items = itemsResult.rows;
+    return order;
+  }
+
+  // Obtener órdenes activas (pending, confirmed, preparing, ready)
+  static async findActiveOrders(filters = {}) {
+    let whereClause = `WHERE o.status IN ('pending', 'confirmed', 'preparing', 'ready')`;
+    const params = [];
+    let paramCount = 1;
+
+    if (filters.user_id) {
+      whereClause += ` AND o.user_id = $${paramCount}`;
+      params.push(filters.user_id);
+      paramCount++;
+    }
+
+    const result = await query(
+      `SELECT o.*, u.full_name as customer_name, u.email as customer_email, u.phone as customer_phone
+       FROM orders o
+       JOIN users u ON u.user_id = o.user_id
+       ${whereClause}
+       ORDER BY
+         CASE o.status
+           WHEN 'ready' THEN 1
+           WHEN 'preparing' THEN 2
+           WHEN 'confirmed' THEN 3
+           WHEN 'pending' THEN 4
+         END,
+         o.created_at ASC`,
+      params
+    );
+
+    return result.rows;
+  }
+
+  // Obtener órdenes del día
+  static async findTodayOrders() {
+    const result = await query(
+      `SELECT o.*, u.full_name as customer_name, u.email as customer_email
+       FROM orders o
+       JOIN users u ON u.user_id = o.user_id
+       WHERE DATE(o.created_at) = CURRENT_DATE
+       ORDER BY o.created_at DESC`
+    );
+    return result.rows;
+  }
+
+  // Obtener órdenes con paginación
+  static async findAllPaginated(filters = {}, page = 1, limit = 20) {
+    let whereClause = 'WHERE 1=1';
+    const params = [];
+    let paramCount = 1;
+
+    if (filters.status) {
+      whereClause += ` AND o.status = $${paramCount}`;
+      params.push(filters.status);
+      paramCount++;
+    }
+
+    if (filters.payment_method) {
+      whereClause += ` AND o.payment_method = $${paramCount}`;
+      params.push(filters.payment_method);
+      paramCount++;
+    }
+
+    if (filters.payment_status) {
+      whereClause += ` AND o.payment_status = $${paramCount}`;
+      params.push(filters.payment_status);
+      paramCount++;
+    }
+
+    if (filters.is_credit_order !== undefined) {
+      whereClause += ` AND o.is_credit_order = $${paramCount}`;
+      params.push(filters.is_credit_order);
+      paramCount++;
+    }
+
+    if (filters.date_from) {
+      whereClause += ` AND o.created_at >= $${paramCount}`;
+      params.push(filters.date_from);
+      paramCount++;
+    }
+
+    if (filters.date_to) {
+      whereClause += ` AND o.created_at <= $${paramCount}`;
+      params.push(filters.date_to);
+      paramCount++;
+    }
+
+    if (filters.user_id) {
+      whereClause += ` AND o.user_id = $${paramCount}`;
+      params.push(filters.user_id);
+      paramCount++;
+    }
+
+    if (filters.search) {
+      whereClause += ` AND (o.order_number ILIKE $${paramCount} OR u.full_name ILIKE $${paramCount} OR u.email ILIKE $${paramCount})`;
+      params.push(`%${filters.search}%`);
+      paramCount++;
+    }
+
+    // Count total
+    const countResult = await query(
+      `SELECT COUNT(*) as total
+       FROM orders o
+       JOIN users u ON u.user_id = o.user_id
+       ${whereClause}`,
+      params
+    );
+
+    const total = parseInt(countResult.rows[0].total);
+    const totalPages = Math.ceil(total / limit);
+    const offset = (page - 1) * limit;
+
+    // Get paginated results
+    const result = await query(
+      `SELECT o.*, u.full_name as customer_name, u.email as customer_email, u.phone as customer_phone
+       FROM orders o
+       JOIN users u ON u.user_id = o.user_id
+       ${whereClause}
+       ORDER BY o.created_at DESC
+       LIMIT $${paramCount} OFFSET $${paramCount + 1}`,
+      [...params, limit, offset]
+    );
+
+    return {
+      orders: result.rows,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      }
+    };
+  }
+
+  // Actualizar notas del pedido
+  static async updateNotes(orderId, notes) {
+    const result = await query(
+      `UPDATE orders SET notes = $2 WHERE order_id = $1 RETURNING *`,
+      [orderId, notes]
+    );
+    return result.rows[0];
+  }
+
+  // Actualizar tiempo estimado
+  static async updateEstimatedTime(orderId, estimatedTime) {
+    const result = await query(
+      `UPDATE orders SET estimated_ready_time = $2 WHERE order_id = $1 RETURNING *`,
+      [orderId, estimatedTime]
+    );
+    return result.rows[0];
+  }
+
+  // Validar QR code y obtener orden
+  static async validateQR(qrCode) {
+    const result = await query(
+      `SELECT o.*, u.full_name as customer_name, u.email as customer_email
+       FROM orders o
+       JOIN users u ON u.user_id = o.user_id
+       WHERE o.qr_code = $1`,
+      [qrCode]
+    );
+
+    if (result.rows.length === 0) return null;
+
+    const order = result.rows[0];
+    const itemsResult = await query(
+      `SELECT oi.*, p.image_url, p.thumbnail_url
+       FROM order_items oi
+       LEFT JOIN products p ON p.product_id = oi.product_id
+       WHERE oi.order_id = $1`,
+      [order.order_id]
+    );
+    order.items = itemsResult.rows;
+    return order;
+  }
+
+  // Reordenar (crear nueva orden basada en una anterior)
+  static async reorder(originalOrderId, userId) {
+    const originalOrder = await this.findById(originalOrderId);
+    if (!originalOrder) {
+      throw new Error('Pedido original no encontrado');
+    }
+
+    const items = originalOrder.items.map(item => ({
+      product_id: item.product_id,
+      quantity: item.quantity,
+      customizations: item.customizations
+    }));
+
+    const orderData = {
+      user_id: userId,
+      payment_method: originalOrder.payment_method,
+      notes: `Reorden de: ${originalOrder.order_number}`
+    };
+
+    return await this.create(orderData, items);
+  }
+
+  // Obtener historial de órdenes de un usuario con paginación
+  static async findUserHistory(userId, page = 1, limit = 10) {
+    const countResult = await query(
+      `SELECT COUNT(*) as total FROM orders WHERE user_id = $1`,
+      [userId]
+    );
+
+    const total = parseInt(countResult.rows[0].total);
+    const totalPages = Math.ceil(total / limit);
+    const offset = (page - 1) * limit;
+
+    const result = await query(
+      `SELECT o.order_id, o.order_number, o.total_amount, o.status,
+              o.payment_method, o.payment_status, o.created_at,
+              o.is_credit_order, o.delivered_at
+       FROM orders o
+       WHERE o.user_id = $1
+       ORDER BY o.created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [userId, limit, offset]
+    );
+
+    return {
+      orders: result.rows,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      }
+    };
+  }
+
+  // Estadísticas por usuario
+  static async getUserStats(userId) {
+    const result = await query(
+      `SELECT
+         COUNT(*) as total_orders,
+         COUNT(CASE WHEN status = 'delivered' THEN 1 END) as completed_orders,
+         COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled_orders,
+         SUM(CASE WHEN status = 'delivered' THEN total_amount ELSE 0 END) as total_spent,
+         AVG(CASE WHEN status = 'delivered' THEN total_amount END) as avg_order_value
+       FROM orders
+       WHERE user_id = $1`,
+      [userId]
+    );
+    return result.rows[0];
+  }
+
+  // Obtener órdenes por cliente (Admin)
+  static async findByCustomer(customerId, filters = {}) {
+    let whereClause = 'WHERE o.user_id = $1';
+    const params = [customerId];
+    let paramCount = 2;
+
+    if (filters.status) {
+      whereClause += ` AND o.status = $${paramCount}`;
+      params.push(filters.status);
+      paramCount++;
+    }
+
+    const result = await query(
+      `SELECT o.*, u.full_name as customer_name, u.email as customer_email
+       FROM orders o
+       JOIN users u ON u.user_id = o.user_id
+       ${whereClause}
+       ORDER BY o.created_at DESC
+       LIMIT 100`,
+      params
+    );
+
+    return result.rows;
   }
 }
 
