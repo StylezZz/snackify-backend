@@ -410,3 +410,137 @@ create table settings
 alter table settings
     owner to postgres;
 
+create table weekly_menus
+(
+    menu_id                 uuid      default uuid_generate_v4() not null
+        primary key,
+    menu_date               date                                 not null
+        constraint unique_menu_date
+            unique,
+    entry_description       varchar(500)                         not null,
+    main_course_description varchar(500)                         not null,
+    drink_description       varchar(500)                         not null,
+    dessert_description     varchar(500)                         not null,
+    description             text,
+    price                   numeric(10, 2)                       not null
+        constraint positive_menu_price
+            check (price >= (0)::numeric),
+    reservation_deadline    timestamp                            not null,
+    max_reservations        integer,
+    current_reservations    integer   default 0
+        constraint positive_reservations
+            check (current_reservations >= 0),
+    is_active               boolean   default true,
+    created_at              timestamp default CURRENT_TIMESTAMP,
+    updated_at              timestamp default CURRENT_TIMESTAMP,
+    constraint valid_deadline
+        check (reservation_deadline < (menu_date + '1 day'::interval))
+);
+
+comment on table weekly_menus is 'Menus semanales de la cafeteria con fecha limite de reserva';
+
+alter table weekly_menus
+    owner to postgres;
+
+create index idx_weekly_menus_date
+    on weekly_menus (menu_date);
+
+create index idx_weekly_menus_active
+    on weekly_menus (is_active);
+
+create index idx_weekly_menus_deadline
+    on weekly_menus (reservation_deadline);
+
+create trigger update_weekly_menus_updated_at
+    before update
+    on weekly_menus
+    for each row
+execute procedure update_updated_at_column();
+
+create table menu_reservations
+(
+    reservation_id      uuid        default uuid_generate_v4()           not null
+        primary key,
+    menu_id             uuid                                             not null
+        references weekly_menus
+            on delete cascade,
+    user_id             uuid                                             not null
+        references users
+            on delete cascade,
+    status              varchar(20) default 'pending'::character varying not null
+        constraint reservation_status_check
+            check ((status)::text = ANY
+                   ((ARRAY ['pending'::character varying, 'confirmed'::character varying, 'cancelled'::character varying, 'delivered'::character varying])::text[])),
+    quantity            integer     default 1                            not null
+        constraint positive_quantity
+            check (quantity > 0),
+    total_amount        numeric(10, 2)                                   not null
+        constraint positive_total
+            check (total_amount >= (0)::numeric),
+    reserved_at         timestamp   default CURRENT_TIMESTAMP,
+    confirmed_at        timestamp,
+    cancelled_at        timestamp,
+    delivered_at        timestamp,
+    cancellation_reason text,
+    notes               text,
+    created_at          timestamp   default CURRENT_TIMESTAMP,
+    updated_at          timestamp   default CURRENT_TIMESTAMP,
+    constraint unique_user_menu
+        unique (user_id, menu_id)
+);
+
+comment on table menu_reservations is 'Reservas de menus semanales por usuarios';
+
+alter table menu_reservations
+    owner to postgres;
+
+create index idx_menu_reservations_menu
+    on menu_reservations (menu_id);
+
+create index idx_menu_reservations_user
+    on menu_reservations (user_id);
+
+create index idx_menu_reservations_status
+    on menu_reservations (status);
+
+create index idx_menu_reservations_date
+    on menu_reservations (reserved_at);
+
+create trigger update_menu_reservations_updated_at
+    before update
+    on menu_reservations
+    for each row
+execute procedure update_updated_at_column();
+
+create trigger update_reservation_count_trigger
+    after insert or update or delete
+    on menu_reservations
+    for each row
+execute procedure update_menu_reservation_count();
+
+create table password_reset_tokens
+(
+    id         uuid      default gen_random_uuid() not null
+        primary key,
+    user_id    uuid                                not null
+        references users
+            on delete cascade,
+    token      varchar(255)                        not null
+        unique,
+    expires_at timestamp                           not null,
+    used       boolean   default false,
+    created_at timestamp default CURRENT_TIMESTAMP
+);
+
+alter table password_reset_tokens
+    owner to postgres;
+
+create index idx_password_reset_token
+    on password_reset_tokens (token);
+
+create index idx_password_reset_user
+    on password_reset_tokens (user_id);
+
+create index idx_password_reset_expires
+    on password_reset_tokens (expires_at);
+
