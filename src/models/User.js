@@ -246,8 +246,8 @@ class User{
         // Hash del token para almacenar en DB (seguridad)
         const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
 
-        // Expiración: 15 minutos
-        const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+        // Expiración: 15 minutos (usando UTC para consistencia con PostgreSQL)
+        const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
         // Invalidar tokens anteriores del usuario
         await query(
