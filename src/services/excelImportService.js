@@ -146,7 +146,7 @@ class ExcelImportService {
         email: 'usuario@ejemplo.com',
         full_name: 'Nombre Completo',
         phone: '987654321',
-        password: 'opcional (se genera automático)',
+        //password: 'opcional (se genera automático)',
         role: 'customer (opcional)',
         credit_limit: '0 (opcional)'
       },
@@ -154,7 +154,7 @@ class ExcelImportService {
         email: 'juan.perez@uni.edu',
         full_name: 'Juan Pérez García',
         phone: '987123456',
-        password: '',
+        //password: '',
         role: 'customer',
         credit_limit: '100'
       }
