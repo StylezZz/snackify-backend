@@ -1,5 +1,6 @@
 const {query} = require('../config/database');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 
 class User{
     static async create(userData){
@@ -221,14 +222,106 @@ class User{
 
     static async getUsersWithDebt() {
         const result = await query(
-            `SELECT user_id, email, full_name, phone, current_balance as debt_amount, 
+            `SELECT user_id, email, full_name, phone, current_balance as debt_amount,
                     credit_limit, account_status
-             FROM users 
+             FROM users
              WHERE has_credit_account = true AND current_balance > 0
              ORDER BY current_balance DESC`
         );
 
         return result.rows;
+    }
+
+    // ==================== PASSWORD RESET METHODS ====================
+
+    /**
+     * Crear token de recuperación de contraseña
+     * @param {string} userId - ID del usuario
+     * @returns {string} Token generado
+     */
+    static async createPasswordResetToken(userId) {
+        // Generar token aleatorio
+        const token = crypto.randomBytes(32).toString('hex');
+
+        // Hash del token para almacenar en DB (seguridad)
+        const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+        // Expiración: 15 minutos
+        const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+        // Invalidar tokens anteriores del usuario
+        await query(
+            'UPDATE password_reset_tokens SET used = TRUE WHERE user_id = $1 AND used = FALSE',
+            [userId]
+        );
+
+        // Crear nuevo token
+        await query(
+            `INSERT INTO password_reset_tokens (user_id, token, expires_at)
+             VALUES ($1, $2, $3)`,
+            [userId, hashedToken, expiresAt]
+        );
+
+        // Retornar token sin hash (el que se envía por email)
+        return token;
+    }
+
+    /**
+     * Verificar token de recuperación y obtener usuario
+     * @param {string} token - Token recibido
+     * @returns {object|null} Usuario si el token es válido
+     */
+    static async verifyPasswordResetToken(token) {
+        // Hash del token recibido para comparar con DB
+        const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+        const result = await query(
+            `SELECT prt.*, u.user_id, u.email, u.full_name
+             FROM password_reset_tokens prt
+             JOIN users u ON prt.user_id = u.user_id
+             WHERE prt.token = $1
+               AND prt.used = FALSE
+               AND prt.expires_at > NOW()`,
+            [hashedToken]
+        );
+
+        return result.rows[0] || null;
+    }
+
+    /**
+     * Resetear contraseña con token
+     * @param {string} token - Token de reset
+     * @param {string} newPassword - Nueva contraseña
+     * @returns {object} Usuario actualizado
+     */
+    static async resetPasswordWithToken(token, newPassword) {
+        // Verificar token
+        const tokenData = await this.verifyPasswordResetToken(token);
+
+        if (!tokenData) {
+            throw new Error('Token inválido o expirado');
+        }
+
+        // Hash nueva contraseña
+        const hashedPassword = await bcrypt.hash(newPassword, 12);
+
+        // Actualizar contraseña
+        const result = await query(
+            `UPDATE users
+             SET password_hash = $1, updated_at = CURRENT_TIMESTAMP
+             WHERE user_id = $2
+             RETURNING user_id, email, full_name, role`,
+            [hashedPassword, tokenData.user_id]
+        );
+
+        // Marcar token como usado
+        const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+        await query(
+            'UPDATE password_reset_tokens SET used = TRUE WHERE token = $1',
+            [hashedToken]
+        );
+
+        return result.rows[0];
     }
 }
 
