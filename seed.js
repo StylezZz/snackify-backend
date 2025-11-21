@@ -33,6 +33,7 @@ async function seed() {
 
     // 2. Crear usuarios de prueba
     console.log('👥 Creando usuarios de prueba...');
+    // sube esto oe
     const customerPassword = await bcrypt.hash('password123', 12);
     
     const users = [
