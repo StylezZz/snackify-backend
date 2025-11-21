@@ -275,6 +275,10 @@ class User{
         // Hash del token recibido para comparar con DB
         const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
 
+        // Debug temporal - REMOVER EN PRODUCCIÓN
+        console.log('Token recibido:', token);
+        console.log('Token hasheado:', hashedToken);
+
         const result = await query(
             `SELECT prt.*, u.user_id, u.email, u.full_name
              FROM password_reset_tokens prt
