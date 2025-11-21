@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const EmailService = require('../services/emailService');
 const { AppError, catchAsync } = require('../middleware/errorHandler');
 
 // Generar JWT token
@@ -162,5 +163,117 @@ exports.updateProfile = catchAsync(async (req, res, next) => {
     data: {
       user
     }
+  });
+});
+
+// @desc    Solicitar recuperación de contraseña
+// @route   POST /api/auth/forgot-password
+// @access  Public
+exports.forgotPassword = catchAsync(async (req, res, next) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return next(new AppError('Por favor proporciona tu email', 400));
+  }
+
+  // Buscar usuario
+  const user = await User.findByEmail(email);
+
+  // Por seguridad, siempre responder igual (no revelar si el email existe)
+  if (!user) {
+    return res.status(200).json({
+      success: true,
+      message: 'Si el email existe, recibirás un correo con instrucciones para restablecer tu contraseña'
+    });
+  }
+
+  // Verificar que la cuenta esté activa
+  if (user.account_status === 'suspended' || user.account_status === 'inactive') {
+    return res.status(200).json({
+      success: true,
+      message: 'Si el email existe, recibirás un correo con instrucciones para restablecer tu contraseña'
+    });
+  }
+
+  // Crear token de reset
+  const resetToken = await User.createPasswordResetToken(user.user_id);
+
+  // Enviar email
+  try {
+    await EmailService.sendPasswordResetEmail(user.email, resetToken, user.full_name);
+  } catch (error) {
+    console.error('Error enviando email:', error);
+    return next(new AppError('Error al enviar el correo. Intenta de nuevo más tarde', 500));
+  }
+
+  res.status(200).json({
+    success: true,
+    message: 'Si el email existe, recibirás un correo con instrucciones para restablecer tu contraseña'
+  });
+});
+
+// @desc    Verificar token de reset (opcional, para validar antes de mostrar formulario)
+// @route   GET /api/auth/verify-reset-token/:token
+// @access  Public
+exports.verifyResetToken = catchAsync(async (req, res, next) => {
+  const { token } = req.params;
+
+  if (!token) {
+    return next(new AppError('Token no proporcionado', 400));
+  }
+
+  const tokenData = await User.verifyPasswordResetToken(token);
+
+  if (!tokenData) {
+    return next(new AppError('Token inválido o expirado', 400));
+  }
+
+  res.status(200).json({
+    success: true,
+    message: 'Token válido',
+    data: {
+      email: tokenData.email
+    }
+  });
+});
+
+// @desc    Restablecer contraseña con token
+// @route   POST /api/auth/reset-password
+// @access  Public
+exports.resetPassword = catchAsync(async (req, res, next) => {
+  const { token, password, confirmPassword } = req.body;
+
+  // Validaciones
+  if (!token || !password || !confirmPassword) {
+    return next(new AppError('Por favor proporciona todos los campos requeridos', 400));
+  }
+
+  if (password !== confirmPassword) {
+    return next(new AppError('Las contraseñas no coinciden', 400));
+  }
+
+  if (password.length < 6) {
+    return next(new AppError('La contraseña debe tener al menos 6 caracteres', 400));
+  }
+
+  // Resetear contraseña
+  let user;
+  try {
+    user = await User.resetPasswordWithToken(token, password);
+  } catch (error) {
+    return next(new AppError(error.message, 400));
+  }
+
+  // Enviar email de confirmación
+  try {
+    await EmailService.sendPasswordChangedEmail(user.email, user.full_name);
+  } catch (error) {
+    console.error('Error enviando email de confirmación:', error);
+    // No bloquear el proceso por esto
+  }
+
+  res.status(200).json({
+    success: true,
+    message: 'Contraseña actualizada correctamente. Ya puedes iniciar sesión con tu nueva contraseña'
   });
 });

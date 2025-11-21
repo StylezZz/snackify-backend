@@ -7,6 +7,11 @@ const { protect } = require('../middleware/auth');
 router.post('/register', authController.register);
 router.post('/login', authController.login);
 
+// Rutas de recuperación de contraseña (públicas)
+router.post('/forgot-password', authController.forgotPassword);
+router.get('/verify-reset-token/:token', authController.verifyResetToken);
+router.post('/reset-password', authController.resetPassword);
+
 // Rutas protegidas (requieren autenticación)
 router.use(protect); // Aplica a todas las rutas siguientes
 
