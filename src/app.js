@@ -12,6 +12,7 @@ const categoryRoutes = require('./routes/category.routes');
 const orderRoutes = require('./routes/order.routes');
 const creditRoutes = require('./routes/credit.routes');
 const dashboardRoutes = require('./routes/dashboard.routes');
+const weeklyMenuRoutes = require('./routes/weeklyMenu.routes');
 
 const app = express();
 
@@ -55,6 +56,7 @@ app.use('/api/categories', categoryRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/credits', creditRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/weekly-menus', weeklyMenuRoutes);
 
 // CORREGIDO: Middleware sin patrón de ruta para catch-all
 app.use((req, res) => {
