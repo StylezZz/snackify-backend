@@ -173,7 +173,7 @@ class Order {
     }
 
     const result = await query(
-      `SELECT o.order_id, o.order_number, o.total_amount, o.status, 
+      `SELECT o.order_id, o.order_number, o.total_amount, o.status,
               o.payment_method, o.payment_status, o.created_at,
               o.estimated_ready_time, o.is_credit_order
        FROM orders o
@@ -183,7 +183,23 @@ class Order {
       params
     );
 
-    return result.rows;
+    // Obtener items para cada orden
+    const orders = await Promise.all(result.rows.map(async (order) => {
+      const itemsResult = await query(
+        `SELECT oi.order_item_id, oi.product_id, oi.product_name, oi.quantity,
+                oi.unit_price, oi.subtotal, oi.customizations,
+                p.image_url, p.thumbnail_url
+         FROM order_items oi
+         LEFT JOIN products p ON p.product_id = oi.product_id
+         WHERE oi.order_id = $1`,
+        [order.order_id]
+      );
+      order.items = itemsResult.rows;
+      order.items_count = itemsResult.rows.length;
+      return order;
+    }));
+
+    return orders;
   }
 
   // Obtener todos los pedidos (para admin)
@@ -217,7 +233,7 @@ class Order {
     }
 
     const result = await query(
-      `SELECT o.*, u.full_name as customer_name, u.email as customer_email
+      `SELECT o.*, u.full_name as customer_name, u.email as customer_email, u.phone as customer_phone
        FROM orders o
        JOIN users u ON u.user_id = o.user_id
        ${whereClause}
@@ -226,7 +242,24 @@ class Order {
       params
     );
 
-    return result.rows;
+    // Obtener items para cada orden
+    const orders = await Promise.all(result.rows.map(async (order) => {
+      const itemsResult = await query(
+        `SELECT oi.order_item_id, oi.product_id, oi.product_name, oi.quantity,
+                oi.unit_price, oi.subtotal, oi.customizations,
+                p.image_url, p.thumbnail_url, p.category_id
+         FROM order_items oi
+         LEFT JOIN products p ON p.product_id = oi.product_id
+         WHERE oi.order_id = $1`,
+        [order.order_id]
+      );
+      order.items = itemsResult.rows;
+      order.items_count = itemsResult.rows.length;
+      order.total_items_quantity = itemsResult.rows.reduce((sum, item) => sum + item.quantity, 0);
+      return order;
+    }));
+
+    return orders;
   }
 
   // Actualizar estado del pedido
@@ -409,19 +442,54 @@ class Order {
       params
     );
 
-    return result.rows;
+    // Obtener items para cada orden
+    const orders = await Promise.all(result.rows.map(async (order) => {
+      const itemsResult = await query(
+        `SELECT oi.order_item_id, oi.product_id, oi.product_name, oi.quantity,
+                oi.unit_price, oi.subtotal, oi.customizations,
+                p.image_url, p.thumbnail_url
+         FROM order_items oi
+         LEFT JOIN products p ON p.product_id = oi.product_id
+         WHERE oi.order_id = $1`,
+        [order.order_id]
+      );
+      order.items = itemsResult.rows;
+      order.items_count = itemsResult.rows.length;
+      order.total_items_quantity = itemsResult.rows.reduce((sum, item) => sum + item.quantity, 0);
+      return order;
+    }));
+
+    return orders;
   }
 
   // Obtener órdenes del día
   static async findTodayOrders() {
     const result = await query(
-      `SELECT o.*, u.full_name as customer_name, u.email as customer_email
+      `SELECT o.*, u.full_name as customer_name, u.email as customer_email, u.phone as customer_phone
        FROM orders o
        JOIN users u ON u.user_id = o.user_id
        WHERE DATE(o.created_at) = CURRENT_DATE
        ORDER BY o.created_at DESC`
     );
-    return result.rows;
+
+    // Obtener items para cada orden
+    const orders = await Promise.all(result.rows.map(async (order) => {
+      const itemsResult = await query(
+        `SELECT oi.order_item_id, oi.product_id, oi.product_name, oi.quantity,
+                oi.unit_price, oi.subtotal, oi.customizations,
+                p.image_url, p.thumbnail_url
+         FROM order_items oi
+         LEFT JOIN products p ON p.product_id = oi.product_id
+         WHERE oi.order_id = $1`,
+        [order.order_id]
+      );
+      order.items = itemsResult.rows;
+      order.items_count = itemsResult.rows.length;
+      order.total_items_quantity = itemsResult.rows.reduce((sum, item) => sum + item.quantity, 0);
+      return order;
+    }));
+
+    return orders;
   }
 
   // Obtener órdenes con paginación
@@ -502,8 +570,25 @@ class Order {
       [...params, limit, offset]
     );
 
+    // Obtener items para cada orden
+    const orders = await Promise.all(result.rows.map(async (order) => {
+      const itemsResult = await query(
+        `SELECT oi.order_item_id, oi.product_id, oi.product_name, oi.quantity,
+                oi.unit_price, oi.subtotal, oi.customizations,
+                p.image_url, p.thumbnail_url
+         FROM order_items oi
+         LEFT JOIN products p ON p.product_id = oi.product_id
+         WHERE oi.order_id = $1`,
+        [order.order_id]
+      );
+      order.items = itemsResult.rows;
+      order.items_count = itemsResult.rows.length;
+      order.total_items_quantity = itemsResult.rows.reduce((sum, item) => sum + item.quantity, 0);
+      return order;
+    }));
+
     return {
-      orders: result.rows,
+      orders,
       pagination: {
         page,
         limit,
@@ -601,8 +686,25 @@ class Order {
       [userId, limit, offset]
     );
 
+    // Obtener items para cada orden
+    const orders = await Promise.all(result.rows.map(async (order) => {
+      const itemsResult = await query(
+        `SELECT oi.order_item_id, oi.product_id, oi.product_name, oi.quantity,
+                oi.unit_price, oi.subtotal, oi.customizations,
+                p.image_url, p.thumbnail_url
+         FROM order_items oi
+         LEFT JOIN products p ON p.product_id = oi.product_id
+         WHERE oi.order_id = $1`,
+        [order.order_id]
+      );
+      order.items = itemsResult.rows;
+      order.items_count = itemsResult.rows.length;
+      order.total_items_quantity = itemsResult.rows.reduce((sum, item) => sum + item.quantity, 0);
+      return order;
+    }));
+
     return {
-      orders: result.rows,
+      orders,
       pagination: {
         page,
         limit,
@@ -643,7 +745,7 @@ class Order {
     }
 
     const result = await query(
-      `SELECT o.*, u.full_name as customer_name, u.email as customer_email
+      `SELECT o.*, u.full_name as customer_name, u.email as customer_email, u.phone as customer_phone
        FROM orders o
        JOIN users u ON u.user_id = o.user_id
        ${whereClause}
@@ -652,7 +754,24 @@ class Order {
       params
     );
 
-    return result.rows;
+    // Obtener items para cada orden
+    const orders = await Promise.all(result.rows.map(async (order) => {
+      const itemsResult = await query(
+        `SELECT oi.order_item_id, oi.product_id, oi.product_name, oi.quantity,
+                oi.unit_price, oi.subtotal, oi.customizations,
+                p.image_url, p.thumbnail_url
+         FROM order_items oi
+         LEFT JOIN products p ON p.product_id = oi.product_id
+         WHERE oi.order_id = $1`,
+        [order.order_id]
+      );
+      order.items = itemsResult.rows;
+      order.items_count = itemsResult.rows.length;
+      order.total_items_quantity = itemsResult.rows.reduce((sum, item) => sum + item.quantity, 0);
+      return order;
+    }));
+
+    return orders;
   }
 }
 
