@@ -1,0 +1,412 @@
+create table users
+(
+    user_id            uuid           default uuid_generate_v4() not null
+        primary key,
+    email              varchar(255)                              not null
+        unique,
+    password_hash      varchar(255)                              not null,
+    full_name          varchar(255)                              not null,
+    phone              varchar(20),
+    role               varchar(20)                               not null
+        constraint users_role_check
+            check ((role)::text = ANY ((ARRAY ['admin'::character varying, 'customer'::character varying])::text[])),
+    account_status     varchar(20)    default 'active'::character varying
+        constraint users_account_status_check
+            check ((account_status)::text = ANY
+                   ((ARRAY ['active'::character varying, 'suspended'::character varying, 'inactive'::character varying])::text[])),
+    suspension_reason  text,
+    suspended_at       timestamp,
+    has_credit_account boolean        default false,
+    credit_limit       numeric(10, 2) default 0.00
+        constraint positive_credit_limit
+            check (credit_limit >= (0)::numeric),
+    current_balance    numeric(10, 2) default 0.00
+        constraint positive_balance
+            check (current_balance >= (0)::numeric),
+    created_at         timestamp      default CURRENT_TIMESTAMP,
+    updated_at         timestamp      default CURRENT_TIMESTAMP,
+    last_login         timestamp
+);
+
+comment on table users is 'Usuarios del sistema con control de cuentas de crédito';
+
+alter table users
+    owner to postgres;
+
+create index idx_users_email
+    on users (email);
+
+create index idx_users_role
+    on users (role);
+
+create index idx_users_account_status
+    on users (account_status);
+
+create index idx_users_has_credit
+    on users (has_credit_account);
+
+create trigger update_users_updated_at
+    before update
+    on users
+    for each row
+execute procedure update_updated_at_column();
+
+create table categories
+(
+    category_id   uuid      default uuid_generate_v4() not null
+        primary key,
+    name          varchar(100)                         not null,
+    description   text,
+    icon_url      varchar(500),
+    display_order integer   default 0,
+    is_active     boolean   default true,
+    created_at    timestamp default CURRENT_TIMESTAMP,
+    updated_at    timestamp default CURRENT_TIMESTAMP
+);
+
+alter table categories
+    owner to postgres;
+
+create index idx_categories_active
+    on categories (is_active);
+
+create trigger update_categories_updated_at
+    before update
+    on categories
+    for each row
+execute procedure update_updated_at_column();
+
+create table products
+(
+    product_id       uuid      default uuid_generate_v4() not null
+        primary key,
+    category_id      uuid                                 not null
+        references categories
+            on delete cascade,
+    name             varchar(255)                         not null,
+    description      text,
+    price            numeric(10, 2)                       not null
+        constraint positive_price
+            check (price >= (0)::numeric),
+    image_url        varchar(500),
+    thumbnail_url    varchar(500),
+    stock_quantity   integer   default 0
+        constraint positive_stock
+            check (stock_quantity >= 0),
+    min_stock_level  integer   default 5,
+    is_available     boolean   default true,
+    preparation_time integer   default 10,
+    calories         integer,
+    allergens        text[],
+    created_at       timestamp default CURRENT_TIMESTAMP,
+    updated_at       timestamp default CURRENT_TIMESTAMP
+);
+
+comment on table products is 'Catálogo de productos con gestión de imágenes';
+
+alter table products
+    owner to postgres;
+
+create index idx_products_category
+    on products (category_id);
+
+create index idx_products_available
+    on products (is_available);
+
+create index idx_products_stock
+    on products (stock_quantity);
+
+create trigger update_products_updated_at
+    before update
+    on products
+    for each row
+execute procedure update_updated_at_column();
+
+create table orders
+(
+    order_id             uuid           default uuid_generate_v4()           not null
+        primary key,
+    user_id              uuid                                                not null
+        references users
+            on delete cascade,
+    order_number         varchar(20)                                         not null
+        unique,
+    total_amount         numeric(10, 2)                                      not null
+        constraint positive_total
+            check (total_amount >= (0)::numeric),
+    status               varchar(20)    default 'pending'::character varying not null
+        constraint orders_status_check
+            check ((status)::text = ANY
+                   ((ARRAY ['pending'::character varying, 'confirmed'::character varying, 'preparing'::character varying, 'ready'::character varying, 'delivered'::character varying, 'cancelled'::character varying])::text[])),
+    payment_method       varchar(20)                                         not null
+        constraint orders_payment_method_check
+            check ((payment_method)::text = ANY
+                   ((ARRAY ['cash'::character varying, 'card'::character varying, 'credit'::character varying])::text[])),
+    payment_status       varchar(20)    default 'pending'::character varying not null
+        constraint orders_payment_status_check
+            check ((payment_status)::text = ANY
+                   ((ARRAY ['pending'::character varying, 'paid'::character varying, 'partial'::character varying, 'overdue'::character varying])::text[])),
+    is_credit_order      boolean        default false,
+    credit_paid_amount   numeric(10, 2) default 0.00
+        constraint positive_paid
+            check (credit_paid_amount >= (0)::numeric),
+    estimated_ready_time timestamp,
+    confirmed_at         timestamp,
+    ready_at             timestamp,
+    delivered_at         timestamp,
+    notes                text,
+    cancellation_reason  text,
+    qr_code              varchar(255)
+        unique,
+    created_at           timestamp      default CURRENT_TIMESTAMP,
+    updated_at           timestamp      default CURRENT_TIMESTAMP,
+    constraint paid_not_exceed_total
+        check (credit_paid_amount <= total_amount)
+);
+
+comment on table orders is 'Pedidos realizados, incluye pedidos fiados';
+
+alter table orders
+    owner to postgres;
+
+create index idx_orders_user
+    on orders (user_id);
+
+create index idx_orders_status
+    on orders (status);
+
+create index idx_orders_payment
+    on orders (payment_method);
+
+create index idx_orders_credit
+    on orders (is_credit_order);
+
+create index idx_orders_date
+    on orders (created_at);
+
+create index idx_orders_number
+    on orders (order_number);
+
+create trigger update_orders_updated_at
+    before update
+    on orders
+    for each row
+execute procedure update_updated_at_column();
+
+create trigger generate_order_number_trigger
+    before insert
+    on orders
+    for each row
+    when (new.order_number IS NULL)
+execute procedure generate_order_number();
+
+create trigger update_credit_on_order_trigger
+    after insert
+    on orders
+    for each row
+execute procedure update_credit_balance_on_order();
+
+create trigger update_inventory_trigger
+    after update
+    on orders
+    for each row
+execute procedure update_inventory_on_order();
+
+create table order_items
+(
+    order_item_id  uuid      default uuid_generate_v4() not null
+        primary key,
+    order_id       uuid                                 not null
+        references orders
+            on delete cascade,
+    product_id     uuid                                 not null
+        references products
+            on delete restrict,
+    product_name   varchar(255)                         not null,
+    quantity       integer                              not null
+        constraint positive_quantity
+            check (quantity > 0),
+    unit_price     numeric(10, 2)                       not null
+        constraint positive_price
+            check (unit_price >= (0)::numeric),
+    subtotal       numeric(10, 2)                       not null
+        constraint positive_subtotal
+            check (subtotal >= (0)::numeric),
+    customizations text,
+    created_at     timestamp default CURRENT_TIMESTAMP
+);
+
+alter table order_items
+    owner to postgres;
+
+create index idx_order_items_order
+    on order_items (order_id);
+
+create index idx_order_items_product
+    on order_items (product_id);
+
+create table credit_payments
+(
+    payment_id            uuid      default uuid_generate_v4() not null
+        primary key,
+    user_id               uuid                                 not null
+        references users
+            on delete cascade,
+    order_id              uuid
+                                                               references orders
+                                                                   on delete set null,
+    amount                numeric(10, 2)                       not null
+        constraint positive_amount
+            check (amount > (0)::numeric),
+    payment_method        varchar(20)                          not null
+        constraint credit_payments_payment_method_check
+            check ((payment_method)::text = ANY
+                   ((ARRAY ['cash'::character varying, 'card'::character varying, 'transfer'::character varying])::text[])),
+    balance_before        numeric(10, 2)                       not null,
+    balance_after         numeric(10, 2)                       not null,
+    transaction_reference varchar(100),
+    notes                 text,
+    recorded_by           uuid
+                                                               references users
+                                                                   on delete set null,
+    created_at            timestamp default CURRENT_TIMESTAMP
+);
+
+comment on table credit_payments is 'Registro de pagos de deudas fiadas';
+
+alter table credit_payments
+    owner to postgres;
+
+create index idx_credit_payments_user
+    on credit_payments (user_id);
+
+create index idx_credit_payments_date
+    on credit_payments (created_at);
+
+create table credit_history
+(
+    history_id       uuid      default uuid_generate_v4() not null
+        primary key,
+    user_id          uuid                                 not null
+        references users
+            on delete cascade,
+    transaction_type varchar(20)                          not null
+        constraint credit_history_transaction_type_check
+            check ((transaction_type)::text = ANY
+                   ((ARRAY ['charge'::character varying, 'payment'::character varying, 'adjustment'::character varying, 'limit_change'::character varying])::text[])),
+    amount           numeric(10, 2)                       not null,
+    balance_before   numeric(10, 2)                       not null,
+    balance_after    numeric(10, 2)                       not null,
+    order_id         uuid
+                                                          references orders
+                                                              on delete set null,
+    payment_id       uuid
+                                                          references credit_payments
+                                                              on delete set null,
+    description      text                                 not null,
+    performed_by     uuid
+                                                          references users
+                                                              on delete set null,
+    created_at       timestamp default CURRENT_TIMESTAMP
+);
+
+comment on table credit_history is 'Historial completo de movimientos de crédito';
+
+alter table credit_history
+    owner to postgres;
+
+create index idx_credit_history_user
+    on credit_history (user_id);
+
+create index idx_credit_history_type
+    on credit_history (transaction_type);
+
+create index idx_credit_history_date
+    on credit_history (created_at);
+
+create table notifications
+(
+    notification_id uuid      default uuid_generate_v4() not null
+        primary key,
+    user_id         uuid                                 not null
+        references users
+            on delete cascade,
+    title           varchar(255)                         not null,
+    message         text                                 not null,
+    type            varchar(20)                          not null
+        constraint notifications_type_check
+            check ((type)::text = ANY
+                   ((ARRAY ['order_status'::character varying, 'credit_alert'::character varying, 'account_alert'::character varying, 'promotion'::character varying, 'system'::character varying])::text[])),
+    is_read         boolean   default false,
+    read_at         timestamp,
+    order_id        uuid
+        references orders
+            on delete cascade,
+    created_at      timestamp default CURRENT_TIMESTAMP
+);
+
+alter table notifications
+    owner to postgres;
+
+create index idx_notifications_user
+    on notifications (user_id);
+
+create index idx_notifications_read
+    on notifications (is_read);
+
+create index idx_notifications_date
+    on notifications (created_at);
+
+create table inventory_movements
+(
+    movement_id   uuid      default uuid_generate_v4() not null
+        primary key,
+    product_id    uuid                                 not null
+        references products
+            on delete cascade,
+    movement_type varchar(20)                          not null
+        constraint inventory_movements_movement_type_check
+            check ((movement_type)::text = ANY
+                   ((ARRAY ['purchase'::character varying, 'sale'::character varying, 'adjustment'::character varying, 'waste'::character varying, 'return'::character varying])::text[])),
+    quantity      integer                              not null,
+    stock_before  integer                              not null,
+    stock_after   integer                              not null,
+    order_id      uuid
+                                                       references orders
+                                                           on delete set null,
+    notes         text,
+    performed_by  uuid
+                                                       references users
+                                                           on delete set null,
+    created_at    timestamp default CURRENT_TIMESTAMP
+);
+
+comment on table inventory_movements is 'Movimientos de inventario para trazabilidad';
+
+alter table inventory_movements
+    owner to postgres;
+
+create index idx_inventory_product
+    on inventory_movements (product_id);
+
+create index idx_inventory_type
+    on inventory_movements (movement_type);
+
+create index idx_inventory_date
+    on inventory_movements (created_at);
+
+create table settings
+(
+    setting_key   varchar(100) not null
+        primary key,
+    setting_value text         not null,
+    description   text,
+    updated_at    timestamp default CURRENT_TIMESTAMP,
+    updated_by    uuid
+                               references users
+                                   on delete set null
+);
+
+alter table settings
+    owner to postgres;
+
