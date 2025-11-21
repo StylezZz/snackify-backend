@@ -367,6 +367,221 @@ class WeeklyMenu {
     const result = await pool.query(query, [menuId]);
     return result.rows[0];
   }
+
+  // ===================== LISTA DE ESPERA / DEMANDA =====================
+
+  // Agregar a lista de espera
+  static async addToWaitlist(waitlistData) {
+    const { menu_id, user_id, quantity = 1, notes } = waitlistData;
+
+    const query = `
+      INSERT INTO menu_waitlist (menu_id, user_id, quantity, notes)
+      VALUES ($1, $2, $3, $4)
+      RETURNING *
+    `;
+    const result = await pool.query(query, [menu_id, user_id, quantity, notes]);
+    return result.rows[0];
+  }
+
+  // Verificar si usuario está en lista de espera
+  static async userInWaitlist(userId, menuId) {
+    const query = `
+      SELECT waitlist_id FROM menu_waitlist
+      WHERE user_id = $1 AND menu_id = $2 AND status = 'waiting'
+    `;
+    const result = await pool.query(query, [userId, menuId]);
+    return result.rows.length > 0;
+  }
+
+  // Obtener lista de espera de un menú
+  static async getMenuWaitlist(menuId) {
+    const query = `
+      SELECT w.*, u.full_name, u.email, u.phone
+      FROM menu_waitlist w
+      JOIN users u ON w.user_id = u.user_id
+      WHERE w.menu_id = $1 AND w.status = 'waiting'
+      ORDER BY w.created_at ASC
+    `;
+    const result = await pool.query(query, [menuId]);
+    return result.rows;
+  }
+
+  // Obtener demanda total (reservaciones + lista de espera)
+  static async getMenuDemand(menuId) {
+    const query = `
+      SELECT
+        m.menu_id,
+        m.menu_date,
+        m.max_reservations,
+        m.current_reservations,
+        COALESCE(m.max_reservations - m.current_reservations, 999) as spots_available,
+        COALESCE(w.waitlist_count, 0) as waitlist_count,
+        COALESCE(w.waitlist_quantity, 0) as waitlist_quantity,
+        m.current_reservations + COALESCE(w.waitlist_quantity, 0) as total_demand,
+        CASE
+          WHEN m.max_reservations IS NULL THEN 0
+          ELSE GREATEST(0, (m.current_reservations + COALESCE(w.waitlist_quantity, 0)) - m.max_reservations)
+        END as unmet_demand,
+        CASE
+          WHEN m.max_reservations IS NULL THEN 'unlimited'
+          WHEN m.current_reservations < m.max_reservations THEN 'available'
+          WHEN COALESCE(w.waitlist_count, 0) > 0 THEN 'full_with_demand'
+          ELSE 'full'
+        END as demand_status
+      FROM weekly_menus m
+      LEFT JOIN (
+        SELECT menu_id,
+               COUNT(*) as waitlist_count,
+               SUM(quantity) as waitlist_quantity
+        FROM menu_waitlist
+        WHERE status = 'waiting'
+        GROUP BY menu_id
+      ) w ON m.menu_id = w.menu_id
+      WHERE m.menu_id = $1
+    `;
+    const result = await pool.query(query, [menuId]);
+    return result.rows[0];
+  }
+
+  // Obtener reporte de demanda para todos los menús activos
+  static async getDemandReport(filters = {}) {
+    let query = `
+      SELECT
+        m.menu_id,
+        m.menu_date,
+        m.entry_description,
+        m.main_course_description,
+        m.max_reservations,
+        m.current_reservations,
+        COALESCE(w.waitlist_count, 0) as waitlist_count,
+        COALESCE(w.waitlist_quantity, 0) as waitlist_quantity,
+        m.current_reservations + COALESCE(w.waitlist_quantity, 0) as total_demand,
+        CASE
+          WHEN m.max_reservations IS NULL THEN 0
+          ELSE GREATEST(0, (m.current_reservations + COALESCE(w.waitlist_quantity, 0)) - m.max_reservations)
+        END as unmet_demand,
+        ROUND(
+          CASE
+            WHEN m.max_reservations IS NULL OR m.max_reservations = 0 THEN 0
+            ELSE (m.current_reservations::numeric / m.max_reservations) * 100
+          END, 1
+        ) as occupancy_percentage
+      FROM weekly_menus m
+      LEFT JOIN (
+        SELECT menu_id,
+               COUNT(*) as waitlist_count,
+               SUM(quantity) as waitlist_quantity
+        FROM menu_waitlist
+        WHERE status = 'waiting'
+        GROUP BY menu_id
+      ) w ON m.menu_id = w.menu_id
+      WHERE m.is_active = true
+    `;
+    const values = [];
+    let paramCount = 0;
+
+    if (filters.from_date) {
+      paramCount++;
+      query += ` AND m.menu_date >= $${paramCount}`;
+      values.push(filters.from_date);
+    }
+
+    if (filters.to_date) {
+      paramCount++;
+      query += ` AND m.menu_date <= $${paramCount}`;
+      values.push(filters.to_date);
+    }
+
+    if (filters.has_unmet_demand) {
+      query += ` AND (m.current_reservations + COALESCE(w.waitlist_quantity, 0)) > COALESCE(m.max_reservations, 999999)`;
+    }
+
+    query += ' ORDER BY m.menu_date ASC';
+
+    const result = await pool.query(query, values);
+    return result.rows;
+  }
+
+  // Actualizar cupo máximo (admin puede agregar más platos)
+  static async updateMaxReservations(menuId, newMax, adminNotes = null) {
+    const query = `
+      UPDATE weekly_menus
+      SET max_reservations = $1
+      WHERE menu_id = $2
+      RETURNING *
+    `;
+    const result = await pool.query(query, [newMax, menuId]);
+
+    // Si hay lista de espera y ahora hay cupos, notificar
+    if (result.rows[0]) {
+      const menu = result.rows[0];
+      if (menu.current_reservations < newMax) {
+        // Hay cupos disponibles, podrían procesarse personas en espera
+        return {
+          menu: result.rows[0],
+          newSpotsAvailable: newMax - menu.current_reservations
+        };
+      }
+    }
+
+    return { menu: result.rows[0], newSpotsAvailable: 0 };
+  }
+
+  // Procesar lista de espera cuando hay nuevos cupos
+  static async processWaitlist(menuId, spotsAvailable) {
+    const waitlistQuery = `
+      SELECT w.*, u.email, u.full_name
+      FROM menu_waitlist w
+      JOIN users u ON w.user_id = u.user_id
+      WHERE w.menu_id = $1 AND w.status = 'waiting'
+      ORDER BY w.created_at ASC
+      LIMIT $2
+    `;
+    const waitlist = await pool.query(waitlistQuery, [menuId, spotsAvailable]);
+
+    const processed = [];
+    for (const entry of waitlist.rows) {
+      // Marcar como notificado
+      await pool.query(
+        `UPDATE menu_waitlist SET status = 'notified', notified_at = NOW() WHERE waitlist_id = $1`,
+        [entry.waitlist_id]
+      );
+      processed.push({
+        user_id: entry.user_id,
+        email: entry.email,
+        full_name: entry.full_name,
+        quantity: entry.quantity
+      });
+    }
+
+    return processed;
+  }
+
+  // Cancelar entrada en lista de espera
+  static async cancelWaitlistEntry(waitlistId, userId) {
+    const query = `
+      UPDATE menu_waitlist
+      SET status = 'cancelled'
+      WHERE waitlist_id = $1 AND user_id = $2
+      RETURNING *
+    `;
+    const result = await pool.query(query, [waitlistId, userId]);
+    return result.rows[0];
+  }
+
+  // Obtener lista de espera de un usuario
+  static async getUserWaitlist(userId) {
+    const query = `
+      SELECT w.*, m.menu_date, m.entry_description, m.main_course_description,
+             m.drink_description, m.dessert_description, m.price
+      FROM menu_waitlist w
+      JOIN weekly_menus m ON w.menu_id = m.menu_id
+      WHERE w.user_id = $1 AND w.status IN ('waiting', 'notified')
+      ORDER BY m.menu_date ASC
+    `;
+    const result = await pool.query(query, [userId]);
+    return result.rows;
+  }
 }
 
 module.exports = WeeklyMenu;

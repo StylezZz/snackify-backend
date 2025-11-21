@@ -1,4 +1,5 @@
 const WeeklyMenu = require('../models/WeeklyMenu');
+const WeeklyMenuImportService = require('../services/weeklyMenuImportService');
 const { AppError, catchAsync } = require('../middleware/errorHandler');
 
 // ===================== MENUS =====================
@@ -327,5 +328,211 @@ exports.getMenuStats = catchAsync(async (req, res, next) => {
   res.status(200).json({
     success: true,
     data: { menu, stats }
+  });
+});
+
+// ===================== IMPORTACIÓN EXCEL =====================
+
+// @desc    Importar menús desde archivo Excel
+// @route   POST /api/weekly-menus/import
+// @access  Private/Admin
+exports.importMenusFromExcel = catchAsync(async (req, res, next) => {
+  if (!req.file) {
+    return next(new AppError('Archivo Excel requerido', 400));
+  }
+
+  const options = {
+    defaultMaxReservations: parseInt(req.body.default_max_reservations) || 30,
+    hoursBeforeDeadline: parseInt(req.body.hours_before_deadline) || 48,
+    skipExistingDates: req.body.skip_existing !== 'false'
+  };
+
+  const results = await WeeklyMenuImportService.importMenusFromExcel(
+    req.file.buffer,
+    options
+  );
+
+  res.status(200).json({
+    success: true,
+    message: `Importación completada: ${results.successful} menús creados`,
+    data: results
+  });
+});
+
+// @desc    Descargar plantilla Excel para menús
+// @route   GET /api/weekly-menus/template
+// @access  Private/Admin
+exports.downloadMenuTemplate = catchAsync(async (req, res, next) => {
+  const buffer = WeeklyMenuImportService.generateMenuTemplate();
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename=plantilla_menus_semanales.xlsx');
+  res.send(buffer);
+});
+
+// ===================== LISTA DE ESPERA / DEMANDA =====================
+
+// @desc    Agregar a lista de espera (cuando el menú está lleno)
+// @route   POST /api/weekly-menus/:id/waitlist
+// @access  Private
+exports.addToWaitlist = catchAsync(async (req, res, next) => {
+  const menuId = req.params.id;
+  const userId = req.user.user_id;
+  const { quantity = 1, notes } = req.body;
+
+  const menu = await WeeklyMenu.findById(menuId);
+  if (!menu) {
+    return next(new AppError('Menú no encontrado', 404));
+  }
+
+  if (!menu.is_active) {
+    return next(new AppError('Menú no disponible', 400));
+  }
+
+  // Verificar si ya tiene reservación
+  const hasReservation = await WeeklyMenu.userHasReservation(userId, menuId);
+  if (hasReservation) {
+    return next(new AppError('Ya tienes una reservación para este menú', 400));
+  }
+
+  // Verificar si ya está en lista de espera
+  const inWaitlist = await WeeklyMenu.userInWaitlist(userId, menuId);
+  if (inWaitlist) {
+    return next(new AppError('Ya estás en la lista de espera para este menú', 400));
+  }
+
+  const waitlistEntry = await WeeklyMenu.addToWaitlist({
+    menu_id: menuId,
+    user_id: userId,
+    quantity,
+    notes
+  });
+
+  res.status(201).json({
+    success: true,
+    message: 'Agregado a la lista de espera. Te notificaremos si hay disponibilidad.',
+    data: { waitlist: waitlistEntry }
+  });
+});
+
+// @desc    Obtener mi lista de espera
+// @route   GET /api/weekly-menus/user/my-waitlist
+// @access  Private
+exports.getMyWaitlist = catchAsync(async (req, res, next) => {
+  const userId = req.user.user_id;
+  const waitlist = await WeeklyMenu.getUserWaitlist(userId);
+
+  res.status(200).json({
+    success: true,
+    count: waitlist.length,
+    data: { waitlist }
+  });
+});
+
+// @desc    Cancelar entrada en lista de espera
+// @route   DELETE /api/weekly-menus/waitlist/:waitlistId
+// @access  Private
+exports.cancelWaitlistEntry = catchAsync(async (req, res, next) => {
+  const { waitlistId } = req.params;
+  const userId = req.user.user_id;
+
+  const cancelled = await WeeklyMenu.cancelWaitlistEntry(waitlistId, userId);
+  if (!cancelled) {
+    return next(new AppError('Entrada en lista de espera no encontrada', 404));
+  }
+
+  res.status(200).json({
+    success: true,
+    message: 'Removido de la lista de espera'
+  });
+});
+
+// @desc    Obtener lista de espera de un menú (admin)
+// @route   GET /api/weekly-menus/:id/waitlist
+// @access  Private/Admin
+exports.getMenuWaitlist = catchAsync(async (req, res, next) => {
+  const menuId = req.params.id;
+
+  const menu = await WeeklyMenu.findById(menuId);
+  if (!menu) {
+    return next(new AppError('Menú no encontrado', 404));
+  }
+
+  const waitlist = await WeeklyMenu.getMenuWaitlist(menuId);
+
+  res.status(200).json({
+    success: true,
+    count: waitlist.length,
+    data: { waitlist }
+  });
+});
+
+// @desc    Obtener demanda de un menú (reservas + lista espera)
+// @route   GET /api/weekly-menus/:id/demand
+// @access  Private/Admin
+exports.getMenuDemand = catchAsync(async (req, res, next) => {
+  const menuId = req.params.id;
+
+  const demand = await WeeklyMenu.getMenuDemand(menuId);
+  if (!demand) {
+    return next(new AppError('Menú no encontrado', 404));
+  }
+
+  res.status(200).json({
+    success: true,
+    data: { demand }
+  });
+});
+
+// @desc    Obtener reporte de demanda de todos los menús
+// @route   GET /api/weekly-menus/demand/report
+// @access  Private/Admin
+exports.getDemandReport = catchAsync(async (req, res, next) => {
+  const filters = {
+    from_date: req.query.from_date,
+    to_date: req.query.to_date,
+    has_unmet_demand: req.query.unmet_only === 'true'
+  };
+
+  const report = await WeeklyMenu.getDemandReport(filters);
+
+  res.status(200).json({
+    success: true,
+    count: report.length,
+    data: { report }
+  });
+});
+
+// @desc    Aumentar cupo de un menú (admin decide preparar más platos)
+// @route   PATCH /api/weekly-menus/:id/capacity
+// @access  Private/Admin
+exports.updateMenuCapacity = catchAsync(async (req, res, next) => {
+  const menuId = req.params.id;
+  const { max_reservations, notify_waitlist = true } = req.body;
+
+  if (!max_reservations || max_reservations < 1) {
+    return next(new AppError('Cupo máximo inválido', 400));
+  }
+
+  const menu = await WeeklyMenu.findById(menuId);
+  if (!menu) {
+    return next(new AppError('Menú no encontrado', 404));
+  }
+
+  const result = await WeeklyMenu.updateMaxReservations(menuId, max_reservations);
+
+  let notifiedUsers = [];
+  if (notify_waitlist && result.newSpotsAvailable > 0) {
+    notifiedUsers = await WeeklyMenu.processWaitlist(menuId, result.newSpotsAvailable);
+  }
+
+  res.status(200).json({
+    success: true,
+    message: `Cupo actualizado a ${max_reservations}. ${notifiedUsers.length} personas notificadas.`,
+    data: {
+      menu: result.menu,
+      newSpotsAvailable: result.newSpotsAvailable,
+      notifiedUsers
+    }
   });
 });
