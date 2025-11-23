@@ -317,7 +317,7 @@ class Credit {
   // Obtener resumen de crédito mensual
   static async getMonthlySummary(year, month) {
     const result = await query(
-      `SELECT 
+      `SELECT
          COUNT(DISTINCT user_id) as users_with_credit,
          SUM(current_balance) as total_debt,
          AVG(current_balance) as avg_debt_per_user,
@@ -328,7 +328,7 @@ class Credit {
     );
 
     const paymentsResult = await query(
-      `SELECT 
+      `SELECT
          COUNT(*) as total_payments,
          SUM(amount) as total_collected
        FROM credit_payments
@@ -338,7 +338,7 @@ class Credit {
     );
 
     const ordersResult = await query(
-      `SELECT 
+      `SELECT
          COUNT(*) as credit_orders_count,
          SUM(total_amount) as credit_orders_total
        FROM orders
@@ -353,6 +353,203 @@ class Credit {
       payments: paymentsResult.rows[0],
       orders: ordersResult.rows[0]
     };
+  }
+
+  // Obtener reporte de gastos fiados de un usuario (diario, semanal, mensual)
+  static async getUserCreditReport(userId, period = 'monthly', startDate = null, endDate = null) {
+    let dateFilter = '';
+    let params = [userId];
+    let paramCount = 2;
+
+    if (startDate && endDate) {
+      dateFilter = `AND o.created_at >= $${paramCount} AND o.created_at <= $${paramCount + 1}`;
+      params.push(startDate, endDate);
+    } else {
+      // Calcular fechas según el período
+      const now = new Date();
+      let start;
+
+      if (period === 'daily') {
+        start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      } else if (period === 'weekly') {
+        start = new Date(now);
+        start.setDate(now.getDate() - 7);
+      } else { // monthly
+        start = new Date(now.getFullYear(), now.getMonth(), 1);
+      }
+
+      dateFilter = `AND o.created_at >= $${paramCount}`;
+      params.push(start);
+    }
+
+    // Obtener pedidos fiados del período
+    const ordersResult = await query(
+      `SELECT
+         o.order_id,
+         o.order_number,
+         o.total_amount,
+         o.credit_paid_amount,
+         (o.total_amount - o.credit_paid_amount) as remaining_amount,
+         o.payment_status,
+         o.created_at,
+         JSON_AGG(
+           JSON_BUILD_OBJECT(
+             'product_name', oi.product_name,
+             'quantity', oi.quantity,
+             'unit_price', oi.unit_price,
+             'subtotal', oi.subtotal
+           )
+         ) as items
+       FROM orders o
+       LEFT JOIN order_items oi ON oi.order_id = o.order_id
+       WHERE o.user_id = $1
+       AND o.is_credit_order = true
+       ${dateFilter}
+       GROUP BY o.order_id, o.order_number, o.total_amount, o.credit_paid_amount,
+                o.payment_status, o.created_at
+       ORDER BY o.created_at DESC`,
+      params
+    );
+
+    // Obtener pagos del período
+    const paymentsResult = await query(
+      `SELECT
+         cp.payment_id,
+         cp.amount,
+         cp.payment_method,
+         cp.created_at,
+         cp.notes,
+         o.order_number
+       FROM credit_payments cp
+       LEFT JOIN orders o ON o.order_id = cp.order_id
+       WHERE cp.user_id = $1
+       ${dateFilter.replace('o.created_at', 'cp.created_at')}
+       ORDER BY cp.created_at DESC`,
+      params
+    );
+
+    const orders = ordersResult.rows;
+    const payments = paymentsResult.rows;
+
+    // Calcular totales
+    const totalOrdered = orders.reduce((sum, order) => sum + parseFloat(order.total_amount), 0);
+    const totalPaid = payments.reduce((sum, payment) => sum + parseFloat(payment.amount), 0);
+    const totalPending = orders.reduce((sum, order) => sum + parseFloat(order.remaining_amount), 0);
+
+    return {
+      period,
+      orders: {
+        count: orders.length,
+        total: totalOrdered,
+        items: orders
+      },
+      payments: {
+        count: payments.length,
+        total: totalPaid,
+        items: payments
+      },
+      summary: {
+        total_ordered: totalOrdered,
+        total_paid: totalPaid,
+        total_pending: totalPending
+      }
+    };
+  }
+
+  // Registrar pago de deuda iniciado por el cliente
+  static async registerCustomerPayment(paymentData) {
+    return await transaction(async (client) => {
+      const { user_id, amount, payment_method, order_id, notes, transaction_reference } = paymentData;
+
+      // Obtener balance actual
+      const userResult = await client.query(
+        'SELECT current_balance, has_credit_account FROM users WHERE user_id = $1',
+        [user_id]
+      );
+
+      if (userResult.rows.length === 0) {
+        throw new Error('Usuario no encontrado');
+      }
+
+      const user = userResult.rows[0];
+
+      if (!user.has_credit_account) {
+        throw new Error('Usuario no tiene cuenta de crédito');
+      }
+
+      if (amount > user.current_balance) {
+        throw new Error('El monto excede la deuda actual');
+      }
+
+      const balanceBefore = user.current_balance;
+      const balanceAfter = balanceBefore - amount;
+
+      // Registrar pago
+      const paymentResult = await client.query(
+        `INSERT INTO credit_payments
+         (user_id, order_id, amount, payment_method, balance_before, balance_after,
+          transaction_reference, notes, recorded_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING *`,
+        [
+          user_id,
+          order_id || null,
+          amount,
+          payment_method,
+          balanceBefore,
+          balanceAfter,
+          transaction_reference || null,
+          notes || `Pago realizado por cliente vía ${payment_method}`,
+          user_id // El cliente registra su propio pago
+        ]
+      );
+
+      // Actualizar balance del usuario
+      await client.query(
+        'UPDATE users SET current_balance = $1 WHERE user_id = $2',
+        [balanceAfter, user_id]
+      );
+
+      // Si hay order_id, actualizar el pedido
+      if (order_id) {
+        const orderResult = await client.query(
+          'SELECT total_amount, credit_paid_amount FROM orders WHERE order_id = $1 AND user_id = $2',
+          [order_id, user_id]
+        );
+
+        if (orderResult.rows.length > 0) {
+          const order = orderResult.rows[0];
+          const newPaidAmount = parseFloat(order.credit_paid_amount) + amount;
+          const newPaymentStatus = newPaidAmount >= parseFloat(order.total_amount) ? 'paid' : 'partial';
+
+          await client.query(
+            `UPDATE orders
+             SET credit_paid_amount = $1, payment_status = $2
+             WHERE order_id = $3`,
+            [newPaidAmount, newPaymentStatus, order_id]
+          );
+        }
+      }
+
+      // Registrar en historial
+      await client.query(
+        `INSERT INTO credit_history
+         (user_id, transaction_type, amount, balance_before, balance_after,
+          payment_id, description, performed_by)
+         VALUES ($1, 'payment', $2, $3, $4, $5, $6, $7)`,
+        [
+          user_id,
+          amount,
+          balanceBefore,
+          balanceAfter,
+          paymentResult.rows[0].payment_id,
+          `Pago realizado vía ${payment_method}${order_id ? ' para pedido específico' : ''}`,
+          user_id
+        ]
+      );
+
+      return paymentResult.rows[0];
+    });
   }
 }
 

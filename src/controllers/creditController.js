@@ -311,3 +311,91 @@ exports.getMyAccount = catchAsync(async (req, res, next) => {
     }
   });
 });
+
+// @desc    Pagar deuda (cliente)
+// @route   POST /api/credit/my-payment
+// @access  Private
+exports.payMyDebt = catchAsync(async (req, res, next) => {
+  const { amount, payment_method, order_id, notes, transaction_reference } = req.body;
+
+  // Validaciones
+  if (!amount || !payment_method) {
+    return next(new AppError('Monto y método de pago son requeridos', 400));
+  }
+
+  if (amount <= 0) {
+    return next(new AppError('El monto debe ser mayor a 0', 400));
+  }
+
+  if (!['cash', 'card', 'yape', 'plin', 'transfer'].includes(payment_method)) {
+    return next(new AppError('Método de pago inválido. Use: cash, card, yape, plin o transfer', 400));
+  }
+
+  const payment = await Credit.registerCustomerPayment({
+    user_id: req.user.user_id,
+    amount: parseFloat(amount),
+    payment_method,
+    order_id: order_id || null,
+    notes,
+    transaction_reference
+  });
+
+  res.status(201).json({
+    success: true,
+    message: 'Pago registrado correctamente',
+    data: {
+      payment
+    }
+  });
+});
+
+// @desc    Obtener reporte de gastos fiados del cliente
+// @route   GET /api/credit/my-report
+// @access  Private
+exports.getMyCreditReport = catchAsync(async (req, res, next) => {
+  const period = req.query.period || 'monthly'; // daily, weekly, monthly
+  const startDate = req.query.start_date || null;
+  const endDate = req.query.end_date || null;
+
+  if (!['daily', 'weekly', 'monthly'].includes(period) && !startDate) {
+    return next(new AppError('Período inválido. Use: daily, weekly o monthly', 400));
+  }
+
+  const report = await Credit.getUserCreditReport(
+    req.user.user_id,
+    period,
+    startDate,
+    endDate
+  );
+
+  res.status(200).json({
+    success: true,
+    data: report
+  });
+});
+
+// @desc    Obtener reporte de gastos fiados de cualquier usuario (admin)
+// @route   GET /api/credit/user-report/:userId
+// @access  Private/Admin
+exports.getUserReport = catchAsync(async (req, res, next) => {
+  const { userId } = req.params;
+  const period = req.query.period || 'monthly';
+  const startDate = req.query.start_date || null;
+  const endDate = req.query.end_date || null;
+
+  if (!['daily', 'weekly', 'monthly'].includes(period) && !startDate) {
+    return next(new AppError('Período inválido. Use: daily, weekly o monthly', 400));
+  }
+
+  const report = await Credit.getUserCreditReport(
+    userId,
+    period,
+    startDate,
+    endDate
+  );
+
+  res.status(200).json({
+    success: true,
+    data: report
+  });
+});

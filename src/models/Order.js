@@ -40,25 +40,11 @@ class Order {
       // Verificar límite de crédito si es pedido fiado
       const is_credit_order = payment_method === 'credit';
       if (is_credit_order) {
-        const userResult = await client.query(
-          `SELECT has_credit_account, credit_limit, current_balance 
-           FROM users WHERE user_id = $1`,
-          [user_id]
-        );
+        const Credit = require('./Credit');
+        const availability = await Credit.checkCreditAvailability(user_id, totalAmount);
 
-        if (userResult.rows.length === 0) {
-          throw new Error('Usuario no encontrado');
-        }
-
-        const user = userResult.rows[0];
-
-        if (!user.has_credit_account) {
-          throw new Error('Usuario no tiene cuenta de crédito activada');
-        }
-
-        const availableCredit = user.credit_limit - user.current_balance;
-        if (totalAmount > availableCredit) {
-          throw new Error(`Crédito insuficiente. Disponible: ${availableCredit.toFixed(2)}`);
+        if (!availability.canOrder) {
+          throw new Error(availability.reason);
         }
       }
 
