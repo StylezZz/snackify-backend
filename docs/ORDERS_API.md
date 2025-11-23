@@ -19,7 +19,7 @@ Crea un nuevo pedido.
 **Request Body:**
 ```json
 {
-  "payment_method": "cash | card | credit",
+  "payment_method": "cash | card | credit | yape | plin",
   "notes": "Sin cebolla por favor",
   "estimated_ready_time": "2024-01-15T14:30:00Z",
   "items": [
@@ -63,7 +63,7 @@ Crea un nuevo pedido.
 | Param | Tipo | Descripcion |
 |-------|------|-------------|
 | status | string | pending, confirmed, preparing, ready, delivered, cancelled |
-| payment_method | string | cash, card, credit |
+| payment_method | string | cash, card, credit, yape, plin |
 
 **Response (200):**
 ```json
@@ -303,7 +303,7 @@ Solo se puede cancelar si el estado es `pending` o `confirmed`.
 | page | number | 1 | Numero de pagina |
 | limit | number | 20 | Cantidad por pagina |
 | status | string | - | pending, confirmed, preparing, ready, delivered, cancelled |
-| payment_method | string | - | cash, card, credit |
+| payment_method | string | - | cash, card, credit, yape, plin |
 | payment_status | string | - | pending, paid, partial, overdue |
 | is_credit_order | boolean | - | true / false |
 | date_from | date | - | Fecha desde (ISO 8601) |
@@ -583,6 +583,8 @@ cancelled  cancelled
 | cash | Pago en efectivo |
 | card | Pago con tarjeta |
 | credit | Pago a credito (fiado) |
+| yape | Pago con Yape |
+| plin | Pago con Plin |
 
 ## ESTADOS DE PAGO
 

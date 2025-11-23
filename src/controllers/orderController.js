@@ -12,7 +12,7 @@ exports.createOrder = catchAsync(async (req, res, next) => {
     return next(new AppError('El pedido debe tener al menos un producto', 400));
   }
 
-  if (!payment_method || !['cash', 'card', 'credit'].includes(payment_method)) {
+  if (!payment_method || !['cash', 'card', 'credit', 'yape', 'plin'].includes(payment_method)) {
     return next(new AppError('Método de pago inválido', 400));
   }
 
