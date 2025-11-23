@@ -28,6 +28,12 @@ router.post('/my-payment', creditController.payMyDebt);
 // Obtener mi reporte de gastos fiados (nuevo)
 router.get('/my-report', creditController.getMyCreditReport);
 
+// Descargar mi reporte de gastos fiados en PDF (nuevo)
+router.get('/my-report/pdf', creditController.downloadMyCreditReportPDF);
+
+// Descargar mi estado de cuenta en PDF (nuevo)
+router.get('/my-account/pdf', creditController.downloadMyAccountPDF);
+
 // =====================================================
 // RUTAS DE ADMINISTRADOR
 // =====================================================
@@ -56,6 +62,9 @@ router.get('/monthly-summary', creditController.getMonthlySummary);
 
 // Obtener reporte de gastos fiados de un usuario específico (nuevo)
 router.get('/user-report/:userId', creditController.getUserReport);
+
+// Descargar reporte de gastos fiados de un usuario en PDF (nuevo)
+router.get('/user-report/:userId/pdf', creditController.downloadUserReportPDF);
 
 // Activar cuenta de crédito de un usuario
 router.post('/enable/:userId', creditController.enableCreditAccount);

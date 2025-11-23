@@ -2,12 +2,14 @@
 
 ## Descripción General
 
-Sistema completo de crédito para pedidos fiados con límites configurables, historial detallado, reportes y pagos mediante múltiples métodos (Yape, Plin, efectivo, tarjeta).
+Sistema completo de crédito para pedidos fiados con límites configurables, historial detallado, reportes y pagos mediante múltiples métodos (Yape, Plin, efectivo, tarjeta). Incluye generación de reportes en PDF para mayor facilidad de lectura y descarga.
 
 ## Tabla de Contenidos
 
 - [Endpoints de Cliente](#endpoints-de-cliente)
+- [Endpoints de PDF (Cliente)](#endpoints-de-pdf-cliente)
 - [Endpoints de Administrador](#endpoints-de-administrador)
+- [Endpoints de PDF (Admin)](#endpoints-de-pdf-admin)
 - [Usuarios de Prueba](#usuarios-de-prueba)
 - [Flujo de Trabajo](#flujo-de-trabajo)
 
@@ -282,6 +284,65 @@ Sistema completo de crédito para pedidos fiados con límites configurables, his
 
 ---
 
+## Endpoints de PDF (Cliente)
+
+### 1. Descargar Reporte de Crédito en PDF
+
+**Endpoint:** `GET /api/credit/my-report/pdf?period=monthly`
+**Autenticación:** Requerida (Cliente)
+**Descripción:** Descarga un reporte de crédito en formato PDF.
+
+**Query Parameters:**
+- `period`: `daily`, `weekly`, `monthly` (default: monthly)
+- `start_date` (opcional): Fecha de inicio (YYYY-MM-DD)
+- `end_date` (opcional): Fecha de fin (YYYY-MM-DD)
+
+**Respuesta:**
+- Content-Type: `application/pdf`
+- Content-Disposition: `attachment; filename="reporte-credito-[nombre]-[timestamp].pdf"`
+
+**El PDF incluye:**
+- Información del cliente
+- Estado de cuenta actual (límite, deuda, disponible)
+- Resumen del período
+- Lista detallada de pedidos fiados con items
+- Lista de pagos realizados
+- Totales y balance
+
+**Ejemplo de uso:**
+```bash
+curl -H "Authorization: Bearer <token>" \
+     "http://localhost:3000/api/credit/my-report/pdf?period=monthly" \
+     --output reporte-credito.pdf
+```
+
+---
+
+### 2. Descargar Estado de Cuenta en PDF
+
+**Endpoint:** `GET /api/credit/my-account/pdf`
+**Autenticación:** Requerida (Cliente)
+**Descripción:** Descarga el estado de cuenta actual en formato PDF.
+
+**Respuesta:**
+- Content-Type: `application/pdf`
+- Content-Disposition: `attachment; filename="estado-cuenta-[nombre]-[timestamp].pdf"`
+
+**El PDF incluye:**
+- Información del cliente
+- Estado de cuenta destacado
+- Pedidos pendientes de pago
+- Historial reciente de movimientos
+
+**Ejemplo de uso:**
+```bash
+curl -H "Authorization: Bearer <token>" \
+     "http://localhost:3000/api/credit/my-account/pdf" \
+     --output estado-cuenta.pdf
+```
+
+---
+
 ## Endpoints de Administrador
 
 ### 1. Registrar Pago por el Cliente
@@ -404,6 +465,49 @@ Sistema completo de crédito para pedidos fiados con límites configurables, his
   "reason": "Descuento por promoción"
 }
 ```
+
+---
+
+## Endpoints de PDF (Admin)
+
+### 1. Descargar Reporte de Usuario en PDF
+
+**Endpoint:** `GET /api/credit/user-report/:userId/pdf?period=monthly`
+**Autenticación:** Requerida (Admin)
+**Descripción:** Descarga el reporte de crédito de cualquier usuario en formato PDF.
+
+**Path Parameters:**
+- `userId`: ID del usuario
+
+**Query Parameters:**
+- `period`: `daily`, `weekly`, `monthly` (default: monthly)
+- `start_date` (opcional): Fecha de inicio (YYYY-MM-DD)
+- `end_date` (opcional): Fecha de fin (YYYY-MM-DD)
+
+**Respuesta:**
+- Content-Type: `application/pdf`
+- Content-Disposition: `attachment; filename="reporte-credito-[nombre]-[timestamp].pdf"`
+
+**El PDF incluye:**
+- Información del usuario
+- Estado de cuenta completo
+- Resumen del período
+- Todos los pedidos fiados con items detallados
+- Todos los pagos realizados
+- Gráficos y totales
+
+**Ejemplo de uso:**
+```bash
+curl -H "Authorization: Bearer <admin-token>" \
+     "http://localhost:3000/api/credit/user-report/[userId]/pdf?period=monthly" \
+     --output reporte-usuario.pdf
+```
+
+**Casos de uso:**
+- Auditorías de crédito
+- Reportes mensuales para contabilidad
+- Análisis de comportamiento de pago
+- Documentación para cobranza
 
 ---
 

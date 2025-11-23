@@ -1,5 +1,6 @@
 const Credit = require('../models/Credit');
 const User = require('../models/User');
+const PDFService = require('../services/pdfService');
 const { AppError, catchAsync } = require('../middleware/errorHandler');
 
 // @desc    Registrar pago de deuda
@@ -398,4 +399,126 @@ exports.getUserReport = catchAsync(async (req, res, next) => {
     success: true,
     data: report
   });
+});
+
+// @desc    Descargar reporte de crédito en PDF (cliente)
+// @route   GET /api/credit/my-report/pdf
+// @access  Private
+exports.downloadMyCreditReportPDF = catchAsync(async (req, res, next) => {
+  const period = req.query.period || 'monthly';
+  const startDate = req.query.start_date || null;
+  const endDate = req.query.end_date || null;
+
+  if (!['daily', 'weekly', 'monthly'].includes(period) && !startDate) {
+    return next(new AppError('Período inválido. Use: daily, weekly o monthly', 400));
+  }
+
+  // Obtener datos del usuario
+  const user = await User.findById(req.user.user_id);
+
+  if (!user.has_credit_account) {
+    return next(new AppError('No tienes cuenta de crédito activada', 404));
+  }
+
+  // Obtener reporte
+  const report = await Credit.getUserCreditReport(
+    req.user.user_id,
+    period,
+    startDate,
+    endDate
+  );
+
+  // Generar PDF
+  const doc = PDFService.generateCreditReportPDF(report, user);
+
+  // Configurar headers
+  const filename = `reporte-credito-${user.full_name.replace(/\s+/g, '-')}-${Date.now()}.pdf`;
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+  // Enviar PDF
+  doc.pipe(res);
+  doc.end();
+});
+
+// @desc    Descargar estado de cuenta en PDF (cliente)
+// @route   GET /api/credit/my-account/pdf
+// @access  Private
+exports.downloadMyAccountPDF = catchAsync(async (req, res, next) => {
+  const user = await User.findById(req.user.user_id);
+
+  if (!user.has_credit_account) {
+    return next(new AppError('No tienes cuenta de crédito activada', 404));
+  }
+
+  const pendingOrders = await Credit.getPendingOrders(req.user.user_id);
+  const recentHistory = await Credit.getCreditHistory(req.user.user_id, 20);
+
+  const accountData = {
+    account: {
+      credit_limit: user.credit_limit,
+      current_balance: user.current_balance,
+      available_credit: user.credit_limit - user.current_balance,
+      usage_percent: ((user.current_balance / user.credit_limit) * 100).toFixed(2)
+    },
+    pending_orders: pendingOrders,
+    recent_history: recentHistory
+  };
+
+  // Generar PDF
+  const doc = PDFService.generateAccountStatementPDF(accountData, user);
+
+  // Configurar headers
+  const filename = `estado-cuenta-${user.full_name.replace(/\s+/g, '-')}-${Date.now()}.pdf`;
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+  // Enviar PDF
+  doc.pipe(res);
+  doc.end();
+});
+
+// @desc    Descargar reporte de crédito en PDF de cualquier usuario (admin)
+// @route   GET /api/credit/user-report/:userId/pdf
+// @access  Private/Admin
+exports.downloadUserReportPDF = catchAsync(async (req, res, next) => {
+  const { userId } = req.params;
+  const period = req.query.period || 'monthly';
+  const startDate = req.query.start_date || null;
+  const endDate = req.query.end_date || null;
+
+  if (!['daily', 'weekly', 'monthly'].includes(period) && !startDate) {
+    return next(new AppError('Período inválido. Use: daily, weekly o monthly', 400));
+  }
+
+  // Obtener datos del usuario
+  const user = await User.findById(userId);
+
+  if (!user) {
+    return next(new AppError('Usuario no encontrado', 404));
+  }
+
+  if (!user.has_credit_account) {
+    return next(new AppError('Usuario no tiene cuenta de crédito activada', 404));
+  }
+
+  // Obtener reporte
+  const report = await Credit.getUserCreditReport(
+    userId,
+    period,
+    startDate,
+    endDate
+  );
+
+  // Generar PDF
+  const doc = PDFService.generateCreditReportPDF(report, user);
+
+  // Configurar headers
+  const filename = `reporte-credito-${user.full_name.replace(/\s+/g, '-')}-${Date.now()}.pdf`;
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+  // Enviar PDF
+  doc.pipe(res);
+  doc.end();
 });
