@@ -177,3 +177,214 @@ exports.getOrderStats = catchAsync(async (req, res, next) => {
     }
   });
 });
+
+// @desc    Buscar pedido por número de orden
+// @route   GET /api/orders/search/:orderNumber
+// @access  Private/Admin
+exports.searchByOrderNumber = catchAsync(async (req, res, next) => {
+  const order = await Order.findByOrderNumber(req.params.orderNumber);
+
+  if (!order) {
+    return next(new AppError('Pedido no encontrado', 404));
+  }
+
+  res.status(200).json({
+    success: true,
+    data: { order }
+  });
+});
+
+// @desc    Obtener órdenes activas (para panel de preparación)
+// @route   GET /api/orders/active
+// @access  Private/Admin
+exports.getActiveOrders = catchAsync(async (req, res, next) => {
+  const orders = await Order.findActiveOrders();
+
+  res.status(200).json({
+    success: true,
+    count: orders.length,
+    data: { orders }
+  });
+});
+
+// @desc    Obtener órdenes del día
+// @route   GET /api/orders/today
+// @access  Private/Admin
+exports.getTodayOrders = catchAsync(async (req, res, next) => {
+  const orders = await Order.findTodayOrders();
+
+  res.status(200).json({
+    success: true,
+    count: orders.length,
+    data: { orders }
+  });
+});
+
+// @desc    Obtener órdenes con paginación
+// @route   GET /api/orders/paginated
+// @access  Private/Admin
+exports.getOrdersPaginated = catchAsync(async (req, res, next) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 20;
+
+  const filters = {
+    status: req.query.status,
+    payment_method: req.query.payment_method,
+    payment_status: req.query.payment_status,
+    is_credit_order: req.query.is_credit_order === 'true' ? true : req.query.is_credit_order === 'false' ? false : undefined,
+    date_from: req.query.date_from,
+    date_to: req.query.date_to,
+    user_id: req.query.user_id,
+    search: req.query.search
+  };
+
+  const result = await Order.findAllPaginated(filters, page, limit);
+
+  res.status(200).json({
+    success: true,
+    data: result
+  });
+});
+
+// @desc    Actualizar notas del pedido
+// @route   PATCH /api/orders/:id/notes
+// @access  Private/Admin
+exports.updateOrderNotes = catchAsync(async (req, res, next) => {
+  const { notes } = req.body;
+
+  const order = await Order.updateNotes(req.params.id, notes);
+
+  if (!order) {
+    return next(new AppError('Pedido no encontrado', 404));
+  }
+
+  res.status(200).json({
+    success: true,
+    data: { order }
+  });
+});
+
+// @desc    Actualizar tiempo estimado de preparación
+// @route   PATCH /api/orders/:id/estimated-time
+// @access  Private/Admin
+exports.updateEstimatedTime = catchAsync(async (req, res, next) => {
+  const { estimated_ready_time } = req.body;
+
+  if (!estimated_ready_time) {
+    return next(new AppError('El tiempo estimado es requerido', 400));
+  }
+
+  const order = await Order.updateEstimatedTime(req.params.id, estimated_ready_time);
+
+  if (!order) {
+    return next(new AppError('Pedido no encontrado', 404));
+  }
+
+  res.status(200).json({
+    success: true,
+    data: { order }
+  });
+});
+
+// @desc    Validar QR code de orden
+// @route   POST /api/orders/validate-qr
+// @access  Private/Admin
+exports.validateQR = catchAsync(async (req, res, next) => {
+  const { qr_code } = req.body;
+
+  if (!qr_code) {
+    return next(new AppError('El código QR es requerido', 400));
+  }
+
+  const order = await Order.validateQR(qr_code);
+
+  if (!order) {
+    return next(new AppError('Código QR inválido', 404));
+  }
+
+  res.status(200).json({
+    success: true,
+    data: { order }
+  });
+});
+
+// @desc    Reordenar (crear nueva orden basada en una anterior)
+// @route   POST /api/orders/:id/reorder
+// @access  Private
+exports.reorder = catchAsync(async (req, res, next) => {
+  const originalOrder = await Order.findById(req.params.id);
+
+  if (!originalOrder) {
+    return next(new AppError('Pedido original no encontrado', 404));
+  }
+
+  // Verificar que el usuario sea dueño del pedido
+  if (originalOrder.user_id !== req.user.user_id && req.user.role !== 'admin') {
+    return next(new AppError('No tienes permiso para reordenar este pedido', 403));
+  }
+
+  const newOrder = await Order.reorder(req.params.id, req.user.user_id);
+
+  res.status(201).json({
+    success: true,
+    message: 'Pedido creado exitosamente',
+    data: { order: newOrder }
+  });
+});
+
+// @desc    Obtener historial de mis órdenes con paginación
+// @route   GET /api/orders/my-history
+// @access  Private
+exports.getMyOrderHistory = catchAsync(async (req, res, next) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+
+  const result = await Order.findUserHistory(req.user.user_id, page, limit);
+
+  res.status(200).json({
+    success: true,
+    data: result
+  });
+});
+
+// @desc    Obtener mis estadísticas de órdenes
+// @route   GET /api/orders/my-stats
+// @access  Private
+exports.getMyOrderStats = catchAsync(async (req, res, next) => {
+  const stats = await Order.getUserStats(req.user.user_id);
+
+  res.status(200).json({
+    success: true,
+    data: { stats }
+  });
+});
+
+// @desc    Obtener mis órdenes activas
+// @route   GET /api/orders/my-active
+// @access  Private
+exports.getMyActiveOrders = catchAsync(async (req, res, next) => {
+  const orders = await Order.findActiveOrders({ user_id: req.user.user_id });
+
+  res.status(200).json({
+    success: true,
+    count: orders.length,
+    data: { orders }
+  });
+});
+
+// @desc    Obtener órdenes de un cliente específico (Admin)
+// @route   GET /api/orders/customer/:customerId
+// @access  Private/Admin
+exports.getCustomerOrders = catchAsync(async (req, res, next) => {
+  const filters = {
+    status: req.query.status
+  };
+
+  const orders = await Order.findByCustomer(req.params.customerId, filters);
+
+  res.status(200).json({
+    success: true,
+    count: orders.length,
+    data: { orders }
+  });
+});
