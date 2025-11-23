@@ -420,6 +420,12 @@ exports.downloadMyCreditReportPDF = catchAsync(async (req, res, next) => {
     return next(new AppError('No tienes cuenta de crédito activada', 404));
   }
 
+  const userForPDF = {
+    ...user,
+    credit_limit: parseFloat(user.credit_limit),
+    current_balance: parseFloat(user.current_balance)
+  };
+
   // Obtener reporte
   const report = await Credit.getUserCreditReport(
     req.user.user_id,
@@ -429,7 +435,7 @@ exports.downloadMyCreditReportPDF = catchAsync(async (req, res, next) => {
   );
 
   // Generar PDF
-  const doc = PDFService.generateCreditReportPDF(report, user);
+  const doc = PDFService.generateCreditReportPDF(report, userForPDF);
 
   // Configurar headers
   const filename = `reporte-credito-${user.full_name.replace(/\s+/g, '-')}-${Date.now()}.pdf`;
