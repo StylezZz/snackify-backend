@@ -368,22 +368,6 @@ class PDFService {
       });
     }
 
-    // ==================== FOOTER ====================
-    const pageCount = doc.bufferedPageRange().count;
-    for (let i = 0; i < pageCount; i++) {
-      doc.switchToPage(i);
-
-      doc.fontSize(8)
-         .fillColor('#95A5A6')
-         .font('Helvetica')
-         .text(
-           `Página ${i + 1} de ${pageCount} | Kanela - Sistema de Crédito | ${new Date().toLocaleDateString('es-PE')}`,
-           40,
-           760,
-           { align: 'center', width: 515 }
-         );
-    }
-
     return doc;
   }
 
