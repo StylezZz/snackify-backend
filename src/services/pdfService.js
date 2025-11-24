@@ -234,41 +234,51 @@ class PDFService {
 
         // Items del pedido
         if (order.items && Array.isArray(order.items) && order.items.length > 0) {
-          const itemsTable = {
-            title: {
-              label: '📦 Items del Pedido',
-              fontSize: 9,
-              color: '#7F8C8D',
-              fontFamily: 'Helvetica-Bold'
-            },
-            headers: [
-              { label: 'Producto', property: 'product', width: 250 },
-              { label: 'Cant.', property: 'qty', width: 60, align: 'center' },
-              { label: 'P. Unit.', property: 'price', width: 100, align: 'right' },
-              { label: 'Subtotal', property: 'subtotal', width: 105, align: 'right' }
-            ],
-            rows: order.items.map(item => [
-              item.product_name,
-              item.quantity.toString(),
-              `S/ ${parseFloat(item.unit_price).toFixed(2)}`,
-              `S/ ${parseFloat(item.subtotal).toFixed(2)}`
-            ])
-          };
+          // Filtrar items válidos (que no sean null)
+          const validItems = order.items.filter(item => item && item.product_name);
 
-          doc.table(itemsTable, {
-            prepareHeader: () => doc.font('Helvetica-Bold').fontSize(8).fillColor('#34495E'),
-            prepareRow: (row, indexColumn, indexRow, rectRow, rectCell) => {
-              doc.font('Helvetica').fontSize(8).fillColor('#000000');
-              if (indexColumn === 0) {
-                doc.font('Helvetica').fillColor('#2C3E50');
-              } else if (indexColumn === 3) {
-                doc.font('Helvetica-Bold').fillColor('#16A085');
-              }
-            },
-            headerBgColor: '#ECF0F1',
-            headerTextColor: '#34495E',
-            padding: 3
-          });
+          if (validItems.length > 0) {
+            const itemsTable = {
+              title: {
+                label: '📦 Items del Pedido',
+                fontSize: 9,
+                color: '#7F8C8D',
+                fontFamily: 'Helvetica-Bold'
+              },
+              headers: [
+                { label: 'Producto', property: 'product', width: 250 },
+                { label: 'Cant.', property: 'qty', width: 60, align: 'center' },
+                { label: 'P. Unit.', property: 'price', width: 100, align: 'right' },
+                { label: 'Subtotal', property: 'subtotal', width: 105, align: 'right' }
+              ],
+              rows: validItems.map(item => [
+                item.product_name || 'Producto sin nombre',
+                (item.quantity || 0).toString(),
+                `S/ ${parseFloat(item.unit_price || 0).toFixed(2)}`,
+                `S/ ${parseFloat(item.subtotal || 0).toFixed(2)}`
+              ])
+            };
+
+            doc.table(itemsTable, {
+              prepareHeader: () => doc.font('Helvetica-Bold').fontSize(8).fillColor('#34495E'),
+              prepareRow: (row, indexColumn, indexRow, rectRow, rectCell) => {
+                doc.font('Helvetica').fontSize(8).fillColor('#000000');
+                if (indexColumn === 0) {
+                  doc.font('Helvetica').fillColor('#2C3E50');
+                } else if (indexColumn === 3) {
+                  doc.font('Helvetica-Bold').fillColor('#16A085');
+                }
+              },
+              headerBgColor: '#ECF0F1',
+              headerTextColor: '#34495E',
+              padding: 3
+            });
+          } else {
+            doc.fontSize(8)
+               .fillColor('#95A5A6')
+               .font('Helvetica-Oblique')
+               .text('Sin items registrados', { align: 'center' });
+          }
         } else {
           doc.fontSize(8)
              .fillColor('#95A5A6')
