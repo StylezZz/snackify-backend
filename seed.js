@@ -352,31 +352,66 @@ async function seed() {
     }
     console.log('✅ Pagos registrados\n');
 
-    // 9. Crear menú semanal
-    console.log('📅 Creando menú semanal...');
-    const currentWeek = Math.ceil((new Date().getDate()) / 7);
-    const currentYear = new Date().getFullYear();
+    // 9. Crear menús semanales (últimas 2 semanas)
+    console.log('📅 Creando menús semanales...');
 
-    const menuResult = await client.query(
-      `INSERT INTO weekly_menus
-       (menu_name, week_number, year, description)
-       VALUES ($1, $2, $3, $4)
-       RETURNING menu_id`,
-      [`Menú Semana ${currentWeek}`, currentWeek, currentYear, 'Menú semanal de almuerzos']
-    );
+    const menusToCreate = [
+      {
+        date: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000), // Mañana
+        entry: 'Sopa criolla con huevo',
+        main: 'Lomo saltado con arroz y papas fritas',
+        drink: 'Chicha morada',
+        dessert: 'Mazamorra morada',
+        price: 12.00
+      },
+      {
+        date: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000), // Pasado mañana
+        entry: 'Crema de zapallo',
+        main: 'Arroz con pollo y ensalada fresca',
+        drink: 'Limonada',
+        dessert: 'Gelatina',
+        price: 10.00
+      },
+      {
+        date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), // +3 días
+        entry: 'Sopa minestrone',
+        main: 'Ají de gallina con arroz blanco',
+        drink: 'Refresco de maracuyá',
+        dessert: 'Arroz con leche',
+        price: 11.00
+      }
+    ];
 
-    const menuId = menuResult.rows[0].menu_id;
+    let menusCreated = 0;
+    for (const menu of menusToCreate) {
+      const reservationDeadline = new Date(menu.date);
+      reservationDeadline.setHours(9, 0, 0, 0); // Deadline a las 9am del mismo día
 
-    // Agregar algunos productos al menú (almuerzos)
-    const lunchProducts = productIds.slice(14, 19); // Productos de almuerzos
-    for (const productId of lunchProducts) {
-      await client.query(
-        `INSERT INTO weekly_menu_items (menu_id, product_id, quantity, price, day_of_week)
-         VALUES ($1, $2, 10, (SELECT price FROM products WHERE product_id = $2), $3)`,
-        [menuId, productId, Math.floor(Math.random() * 5) + 1]
-      );
+      try {
+        await client.query(
+          `INSERT INTO weekly_menus
+           (menu_date, entry_description, main_course_description, drink_description,
+            dessert_description, description, price, reservation_deadline, max_reservations, is_active)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
+           ON CONFLICT (menu_date) DO NOTHING`,
+          [
+            menu.date.toISOString().split('T')[0], // Solo fecha YYYY-MM-DD
+            menu.entry,
+            menu.main,
+            menu.drink,
+            menu.dessert,
+            `Menú del día: ${menu.main}`,
+            menu.price,
+            reservationDeadline,
+            50 // Máximo 50 reservas por menú
+          ]
+        );
+        menusCreated++;
+      } catch (error) {
+        console.log(`⚠️  Error creando menú para ${menu.date.toISOString().split('T')[0]}: ${error.message}`);
+      }
     }
-    console.log('✅ Menú semanal creado\n');
+    console.log(`✅ ${menusCreated} menús semanales creados\n`);
 
     console.log('✨ Seed completado exitosamente!\n');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -394,7 +429,7 @@ async function seed() {
     console.log(`📦 Órdenes históricas: ${ordersCreated} (últimos 60 días)`);
     console.log(`🔄 Órdenes activas: 10`);
     console.log(`💰 Pagos de crédito: 2 registrados`);
-    console.log(`📅 Menús semanales: 1`);
+    console.log(`📅 Menús semanales: ${menusCreated} (próximos días)`);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
     console.log('🔑 CREDENCIALES DE PRUEBA:');
