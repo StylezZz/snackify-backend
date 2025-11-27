@@ -41,7 +41,7 @@ class Order {
       const is_credit_order = payment_method === 'credit';
       if (is_credit_order) {
         const userResult = await client.query(
-          `SELECT has_credit_account, credit_limit, current_balance 
+          `SELECT has_credit_account, credit_limit, current_balance, account_status
            FROM users WHERE user_id = $1`,
           [user_id]
         );
@@ -53,12 +53,34 @@ class Order {
         const user = userResult.rows[0];
 
         if (!user.has_credit_account) {
-          throw new Error('Usuario no tiene cuenta de crédito activada');
+          throw new Error('No tienes una cuenta de crédito activada. Contacta al administrador para activarla.');
+        }
+
+        if (user.account_status !== 'active') {
+          throw new Error('Tu cuenta está suspendida. No puedes realizar pedidos a crédito.');
         }
 
         const availableCredit = user.credit_limit - user.current_balance;
+        const newBalance = user.current_balance + totalAmount;
+
         if (totalAmount > availableCredit) {
-          throw new Error(`Crédito insuficiente. Disponible: ${availableCredit.toFixed(2)}`);
+          throw new Error(
+            `Crédito insuficiente. ` +
+            `Tu límite de crédito es S/${user.credit_limit.toFixed(2)}, ` +
+            `debes actualmente S/${user.current_balance.toFixed(2)}, ` +
+            `y este pedido es de S/${totalAmount.toFixed(2)}. ` +
+            `Solo tienes S/${availableCredit.toFixed(2)} disponibles. ` +
+            `Paga tu deuda para poder realizar más pedidos.`
+          );
+        }
+
+        // Advertir si el pedido dejará el crédito muy cerca del límite
+        const usagePercentAfterOrder = (newBalance / user.credit_limit) * 100;
+        if (usagePercentAfterOrder >= 80 && usagePercentAfterOrder < 100) {
+          console.log(
+            `ADVERTENCIA: Usuario ${user_id} estará usando ${usagePercentAfterOrder.toFixed(1)}% ` +
+            `de su crédito después de esta orden`
+          );
         }
       }
 
