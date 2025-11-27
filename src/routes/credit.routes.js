@@ -37,7 +37,6 @@ router.get('/my-account/pdf', creditController.downloadMyAccountPDF);
 // =====================================================
 // RUTAS DE ADMINISTRADOR
 // =====================================================
-router.use(restrictTo('admin'));
 
 // Registrar pago de deuda (admin registra por el cliente)
 router.post('/payment', creditController.registerPayment);
